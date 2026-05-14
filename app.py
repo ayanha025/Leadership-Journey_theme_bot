@@ -32,9 +32,6 @@ session = {
 
 # ── 유틸 ────────────────────────────────────────────────────────────────────
 
-CIRCLE_NUMS = ["①", "②", "③", "④", "⑤"]
-
-
 def _build_message_text(month, direction, keyword, titles, contents):
     lines = [
         f":date: *{month}월 기획 방향*",
@@ -44,19 +41,19 @@ def _build_message_text(month, direction, keyword, titles, contents):
         ":clapper: *1. 유튜브 스타일*",
     ]
     for i, t in enumerate(titles.get("youtube", [])[:5]):
-        lines.append(f"{CIRCLE_NUMS[i]} {t}")
+        lines.append(f"{i + 1}. {t}")
 
     lines += ["", "─────────────────────────", ":books: *2. 교육적 스타일*"]
     for i, t in enumerate(titles.get("educational", [])[:5]):
-        lines.append(f"{CIRCLE_NUMS[i]} {t}")
+        lines.append(f"{i + 6}. {t}")
 
     lines += ["", "─────────────────────────", ":fire: *3. 밈/유행어 스타일*"]
     for i, t in enumerate(titles.get("meme", [])[:5]):
-        lines.append(f"{CIRCLE_NUMS[i]} {t}")
+        lines.append(f"{i + 11}. {t}")
 
     lines += ["", "─────────────────────────", ":zap: *4. 어그로 스타일*"]
     for i, t in enumerate(titles.get("aggro", [])[:5]):
-        lines.append(f"{CIRCLE_NUMS[i]} {t}")
+        lines.append(f"{i + 16}. {t}")
 
     lines += ["", "━━━━━━━━━━━━━━━━━━━━━━━", ":books: *추천 콘텐츠 (아티클 · 영상)*"]
     for c in contents:
@@ -66,7 +63,15 @@ def _build_message_text(month, direction, keyword, titles, contents):
     return "\n".join(lines)
 
 
-def _build_blocks(text):
+def _build_blocks(text, titles=None):
+    all_titles = []
+    if titles:
+        all_titles = (
+            titles.get("youtube", []) +
+            titles.get("educational", []) +
+            titles.get("meme", []) +
+            titles.get("aggro", [])
+        )
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         {
@@ -82,6 +87,7 @@ def _build_blocks(text):
                     "type": "button",
                     "text": {"type": "plain_text", "text": "✅ 이 테마로 확정"},
                     "action_id": "confirm_theme",
+                    "value": json.dumps(all_titles, ensure_ascii=False),
                 },
             ],
         },
@@ -119,7 +125,7 @@ def _run_and_send(channel=None, update_ts=None):
     month = datetime.now().month
     direction = get_direction(month)
     text = _build_message_text(month, direction, keyword, titles, contents)
-    blocks = _build_blocks(text)
+    blocks = _build_blocks(text, titles)
 
     dm_channel = channel or _get_dm_channel()
 
@@ -180,24 +186,54 @@ def handle_regenerate_button(ack, body):
 @app.action("confirm_theme")
 def handle_confirm(ack, body):
     ack()
-    keyword = session["current"].get("keyword")
-    if keyword:
-        _save_confirmed_theme(keyword)
+    try:
+        all_titles = json.loads(body["actions"][0].get("value", "[]"))
+    except Exception:
+        all_titles = []
+
+    options = [
+        {
+            "text": {"type": "plain_text", "text": f"{i + 1}. {t}"[:75]},
+            "value": t,
+        }
+        for i, t in enumerate(all_titles)
+    ]
 
     channel = session.get("last_channel") or body["channel"]["id"]
-    ts = session.get("last_ts")
+    app.client.chat_postMessage(
+        channel=channel,
+        text="확정할 제목을 선택해주세요.",
+        blocks=[
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": ":pencil: *확정할 제목을 선택해주세요.*"},
+                "accessory": {
+                    "type": "static_select",
+                    "placeholder": {"type": "plain_text", "text": "제목 선택"},
+                    "options": options,
+                    "action_id": "select_title",
+                },
+            }
+        ],
+    )
 
-    confirm_text = f":white_check_mark: 확정되었습니다.\n선정 키워드: *{keyword}*"
 
-    if ts:
-        app.client.chat_update(
-            channel=channel,
-            ts=ts,
-            text=confirm_text,
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": confirm_text}}],
-        )
-    else:
-        app.client.chat_postMessage(channel=channel, text=confirm_text)
+@app.action("select_title")
+def handle_title_select(ack, body):
+    ack()
+    selected_title = body["actions"][0]["selected_option"]["value"]
+    _save_confirmed_theme(selected_title)
+
+    channel = body["channel"]["id"]
+    ts = body["message"]["ts"]
+
+    confirm_text = f":white_check_mark: 확정되었습니다.\n선정 테마 제목: *{selected_title}*"
+    app.client.chat_update(
+        channel=channel,
+        ts=ts,
+        text=confirm_text,
+        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": confirm_text}}],
+    )
 
     session["suggested_keywords"] = []
     session["current"] = {"keyword": None, "titles": {}, "contents": []}
