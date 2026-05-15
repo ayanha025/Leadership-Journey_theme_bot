@@ -51,7 +51,7 @@ C레벨 임원 대상 프리미엄 콘텐츠 플랫폼 '휴넷CEO 비즈니스�
     "description": "키워드를 소개하는 글 300자 내외",
     "implications": ["경영자를 위한 시사점 20자 내외 1", "시사점2", "시사점3", "시사점4", "시사점5"],
     "source": "출처명",
-    "sourceUrl": "원문 URL (불확실 시 빈 문자열)",
+    "sourceUrl": "웹 검색으로 확인한 실제 원문 URL (반드시 실존하는 URL, 빈 문자열 금지)",
     "sourceDate": "YYYY-MM"
   }}
 ]"""
@@ -91,7 +91,7 @@ C레벨 임원 대상 프리미엄 콘텐츠 플랫폼 '휴넷CEO 비즈니스�
       {{"title": "4회차 부제", "desc": "한 줄 요약"}}
     ],
     "source": "출처명",
-    "sourceUrl": "",
+    "sourceUrl": "웹 검색으로 확인한 실제 원문 URL (반드시 실존하는 URL, 빈 문자열 금지)",
     "sourceDate": "YYYY-MM"
   }}
 ]"""
@@ -104,31 +104,35 @@ def build_dates() -> tuple:
     return today, start, today
 
 
-def _exclude_block(used_keywords: list) -> str:
-    if not used_keywords:
-        return ""
-    return f"이미 제안한 키워드 목록 (반드시 제외): {', '.join(used_keywords)}"
+def _exclude_block(used_keywords: list, existing_titles: list = None) -> str:
+    parts = []
+    if used_keywords:
+        parts.append(f"이미 제안한 키워드 목록 (반드시 제외): {', '.join(used_keywords)}")
+    if existing_titles:
+        titles_str = "\n".join(f"- {t}" for t in existing_titles)
+        parts.append(f"이미 발행된 아티클 제목 목록 (동일하거나 매우 유사한 소재는 반드시 제외):\n{titles_str}")
+    return "\n\n".join(parts)
 
 
-def build_article_prompt(used_keywords: list) -> str:
+def build_article_prompt(used_keywords: list, existing_titles: list = None) -> str:
     today, start, end = build_dates()
     return _ARTICLE_PROMPT_TEMPLATE.format(
         sources=_COMMON_SOURCES, criteria=_COMMON_CRITERIA
     ).replace("{today}", today).replace("{start}", start).replace("{end}", end).replace(
-        "{exclude_block}", _exclude_block(used_keywords)
+        "{exclude_block}", _exclude_block(used_keywords, existing_titles)
     )
 
 
-def build_series_prompt(used_keywords: list) -> str:
+def build_series_prompt(used_keywords: list, existing_titles: list = None) -> str:
     today, start, end = build_dates()
     return _SERIES_PROMPT_TEMPLATE.format(
         sources=_COMMON_SOURCES, criteria=_COMMON_CRITERIA
     ).replace("{today}", today).replace("{start}", start).replace("{end}", end).replace(
-        "{exclude_block}", _exclude_block(used_keywords)
+        "{exclude_block}", _exclude_block(used_keywords, existing_titles)
     )
 
 
-def call_openrouter(prompt: str, api_key: str, model: str) -> str:
+def call_openrouter(prompt: str, api_key: str, model: str) -> tuple:
     resp = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -137,7 +141,10 @@ def call_openrouter(prompt: str, api_key: str, model: str) -> str:
     )
     if resp.status_code != 200:
         raise RuntimeError(f"OpenRouter API 오류: {resp.status_code} {resp.text}")
-    return resp.json()["choices"][0]["message"]["content"]
+    data = resp.json()
+    content = data["choices"][0]["message"]["content"]
+    citations = data.get("citations", [])
+    return content, citations
 
 
 def _extract_json(raw: str) -> str:
@@ -163,7 +170,13 @@ def parse_series(raw: str) -> list:
         raise ValueError(f"JSON 파싱 실패: {e}")
 
 
-def format_article_blocks(articles: list, date_str: str) -> list:
+def format_article_blocks(articles: list, date_str: str, citations: list = None) -> list:
+    if not articles:
+        return [{"type": "section", "text": {"type": "mrkdwn",
+                 "text": "⚠️ 소재를 찾지 못했습니다. 🔄 재생성을 눌러주세요."}},
+                {"type": "actions", "elements": [
+                    {"type": "button", "action_id": "regenerate_article",
+                     "text": {"type": "plain_text", "text": "🔄 재생성"}}]}]
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn",
          "text": f"📋 *이번 소재 후보 {len(articles)}건* ({date_str} 기준)"}},
@@ -173,6 +186,10 @@ def format_article_blocks(articles: list, date_str: str) -> list:
         src = f"<{a['sourceUrl']}|{a['source']}>" if a.get("sourceUrl") else f"{a['source']} (링크 미확인)"
         blocks.append({"type": "section", "text": {"type": "mrkdwn",
             "text": f"*{i}. [{a['category']}] {a['title']}*\n{a['description'][:200]}\n🔗 출처: {src}"}})
+    if citations:
+        links = "\n".join(f"• <{url}|{url}>" for url in citations[:8])
+        blocks.append({"type": "section", "text": {"type": "mrkdwn",
+            "text": f"🔗 *참고 기사 링크*\n{links}"}})
     blocks += [
         {"type": "divider"},
         {"type": "actions", "elements": [
@@ -189,7 +206,13 @@ def format_article_blocks(articles: list, date_str: str) -> list:
     return blocks
 
 
-def format_series_blocks(series: list, date_str: str) -> list:
+def format_series_blocks(series: list, date_str: str, citations: list = None) -> list:
+    if not series:
+        return [{"type": "section", "text": {"type": "mrkdwn",
+                 "text": "⚠️ 시리즈 기획안을 찾지 못했습니다. 🔄 재생성을 눌러주세요."}},
+                {"type": "actions", "elements": [
+                    {"type": "button", "action_id": "regenerate_series",
+                     "text": {"type": "plain_text", "text": "🔄 재생성"}}]}]
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn",
          "text": f"📚 *시리즈 기획안 {len(series)}건* ({date_str} 기준)"}},
@@ -200,6 +223,10 @@ def format_series_blocks(series: list, date_str: str) -> list:
         src = f"<{s['sourceUrl']}|{s['source']}>" if s.get("sourceUrl") else f"{s['source']} (링크 미확인)"
         blocks.append({"type": "section", "text": {"type": "mrkdwn",
             "text": f"*{i}. [{s['category']}] {s['seriesTitle']}*\n기획 의도: {s['description'][:100]}\n{eps}\n🔗 출처: {src}"}})
+    if citations:
+        links = "\n".join(f"• <{url}|{url}>" for url in citations[:8])
+        blocks.append({"type": "section", "text": {"type": "mrkdwn",
+            "text": f"🔗 *참고 기사 링크*\n{links}"}})
     blocks += [
         {"type": "divider"},
         {"type": "actions", "elements": [

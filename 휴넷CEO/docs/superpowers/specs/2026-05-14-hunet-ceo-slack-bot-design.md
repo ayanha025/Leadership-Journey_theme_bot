@@ -2,9 +2,9 @@
 
 **목표:** Slack DM에서 "소재서치" 또는 "시리즈서치" 입력(슬래시 커맨드 포함) 시, Perplexity sonar-pro(웹 검색 내장)를 통해 C레벨 임원 대상 아티클 후보 7건을 DM으로 발송한다. 단발 소재와 시리즈 기획은 별도 트리거로 독립 운영. 재생성·확정 버튼 포함.
 
-**Architecture:** Slack Bolt(Socket Mode) → content_engine.py(Perplexity API + JSON 파싱) → DM 발송 → 버튼 액션 처리 → storage.py(확정 저장)
+**Architecture:** Slack Bolt(Socket Mode) → content_engine.py(OpenRouter/Perplexity API + JSON 파싱) → DM 발송 → 버튼 액션 처리 → storage.py(확정 저장)
 
-**Tech Stack:** Python 3, slack-bolt, requests, python-dotenv, Perplexity API (sonar-pro)
+**Tech Stack:** Python 3, slack-bolt, requests, python-dotenv, OpenRouter API (perplexity/sonar-pro)
 
 ---
 
@@ -98,7 +98,7 @@
 ## AI 호출 스펙
 
 ### 모델
-`sonar-pro` via Perplexity API (`https://api.perplexity.ai/chat/completions`)
+`perplexity/sonar-pro` via OpenRouter API (`https://openrouter.ai/api/v1/chat/completions`)
 
 ### 날짜 치환
 `content_engine.py`에서 호출 시점에 Asia/Seoul 기준으로 자동 계산:
@@ -195,8 +195,8 @@ C레벨 임원 대상 프리미엄 콘텐츠 플랫폼 '휴넷CEO 비즈니스�
 ```
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
-PERPLEXITY_API_KEY=...
-PERPLEXITY_MODEL=sonar-pro
+OPENROUTER_API_KEY=...
+OPENROUTER_MODEL=perplexity/sonar-pro
 TARGET_USER_ID=U0B2065SZ8B
 CONFIRMED_ARTICLES_PATH=data/confirmed_articles.json
 ```

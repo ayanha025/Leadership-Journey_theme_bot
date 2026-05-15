@@ -4,7 +4,7 @@
 
 **Goal:** Slack DM에서 `소재서치` / `시리즈서치` 입력 시 Perplexity sonar-pro(웹 검색 내장)로 C레벨 임원 대상 아티클 후보 7건을 생성하고, 재생성·확정 버튼으로 관리하는 Slack Bolt 봇을 구현한다.
 
-**Architecture:** Slack Bolt(Socket Mode) → `content_engine.py`(날짜 치환 + Perplexity API 호출 + JSON 파싱 + Slack 블록 포맷) → `app.py`(이벤트·버튼 핸들러 + 세션 관리) → `storage.py`(확정 소재 저장)
+**Architecture:** Slack Bolt(Socket Mode) → `content_engine.py`(날짜 치환 + OpenRouter API 호출 + JSON 파싱 + Slack 블록 포맷) → `app.py`(이벤트·버튼 핸들러 + 세션 관리) → `storage.py`(확정 소재 저장)
 
 **Tech Stack:** Python 3.10+, slack-bolt, requests, python-dotenv, pytest
 
@@ -50,8 +50,8 @@ pytest>=7.0.0
 ```
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
-PERPLEXITY_API_KEY=...
-PERPLEXITY_MODEL=sonar-pro
+OPENROUTER_API_KEY=...
+OPENROUTER_MODEL=perplexity/sonar-pro
 TARGET_USER_ID=U0B2065SZ8B
 CONFIRMED_ARTICLES_PATH=data/confirmed_articles.json
 ```
@@ -412,19 +412,19 @@ def _mock_response(content: str):
     return mock
 
 
-def test_call_perplexity_returns_content():
+def test_call_openrouter_returns_content():
     with patch("requests.post", return_value=_mock_response('[{"keyword":"테스트"}]')):
-        result = content_engine.call_perplexity("prompt", "fake-key", "sonar-pro")
+        result = content_engine.call_openrouter("prompt", "fake-key", "perplexity/sonar-pro")
     assert result == '[{"keyword":"테스트"}]'
 
 
-def test_call_perplexity_raises_on_error():
+def test_call_openrouter_raises_on_error():
     mock = MagicMock()
     mock.status_code = 401
     mock.text = "Unauthorized"
     with patch("requests.post", return_value=mock):
-        with pytest.raises(RuntimeError, match="Perplexity API 오류"):
-            content_engine.call_perplexity("prompt", "bad-key", "sonar-pro")
+        with pytest.raises(RuntimeError, match="OpenRouter API 오류"):
+            content_engine.call_openrouter("prompt", "bad-key", "perplexity/sonar-pro")
 
 
 def test_parse_articles_valid():
@@ -462,7 +462,7 @@ def test_parse_series_valid():
 - [ ] **Step 2: 테스트 실행 — 실패 확인**
 
 ```bash
-pytest tests/test_content_engine.py -v -k "perplexity or parse"
+pytest tests/test_content_engine.py -v -k "openrouter or parse"
 ```
 Expected: FAIL — `AttributeError: module 'content_engine' has no attribute 'call_openrouter'`
 
@@ -470,15 +470,15 @@ Expected: FAIL — `AttributeError: module 'content_engine' has no attribute 'ca
 
 `content_engine.py` 하단에 추가:
 ```python
-def call_perplexity(prompt: str, api_key: str, model: str) -> str:
+def call_openrouter(prompt: str, api_key: str, model: str) -> str:
     resp = requests.post(
-        "https://api.perplexity.ai/chat/completions",
+        "https://openrouter.ai/api/v1/chat/completions",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         json={"model": model, "messages": [{"role": "user", "content": prompt}]},
         timeout=90,
     )
     if resp.status_code != 200:
-        raise RuntimeError(f"Perplexity API 오류: {resp.status_code} {resp.text}")
+        raise RuntimeError(f"OpenRouter API 오류: {resp.status_code} {resp.text}")
     return resp.json()["choices"][0]["message"]["content"]
 
 
@@ -681,8 +681,8 @@ logger = logging.getLogger(__name__)
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 TARGET_USER_ID = os.environ["TARGET_USER_ID"]
 CONFIRMED_PATH = os.getenv("CONFIRMED_ARTICLES_PATH", "data/confirmed_articles.json")
-PERPLEXITY_API_KEY = os.environ["PERPLEXITY_API_KEY"]
-PERPLEXITY_MODEL = os.getenv("PERPLEXITY_MODEL", "sonar-pro")
+OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "perplexity/sonar-pro")
 
 sessions: dict[str, dict] = {}
 
@@ -711,7 +711,7 @@ def _run_article_search(client, user_id: str) -> None:
     )
     try:
         prompt = content_engine.build_article_prompt(sess["articles_used_keywords"])
-        raw = content_engine.call_perplexity(prompt, PERPLEXITY_API_KEY, PERPLEXITY_MODEL)
+        raw = content_engine.call_openrouter(prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
         articles = content_engine.parse_articles(raw)
     except Exception as e:
         logger.error("소재 서치 오류: %s", e)
@@ -737,7 +737,7 @@ def _run_series_search(client, user_id: str) -> None:
     )
     try:
         prompt = content_engine.build_series_prompt(sess["series_used_keywords"])
-        raw = content_engine.call_perplexity(prompt, PERPLEXITY_API_KEY, PERPLEXITY_MODEL)
+        raw = content_engine.call_openrouter(prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
         series = content_engine.parse_series(raw)
     except Exception as e:
         logger.error("시리즈 서치 오류: %s", e)
@@ -820,7 +820,7 @@ def _do_regenerate_article(client, user_id: str) -> None:
                            text="AI가 새 소재를 서치하고 있습니다… :hourglass_flowing_sand:")
     try:
         prompt = content_engine.build_article_prompt(sess["articles_used_keywords"])
-        raw = content_engine.call_perplexity(prompt, PERPLEXITY_API_KEY, PERPLEXITY_MODEL)
+        raw = content_engine.call_openrouter(prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
         articles = content_engine.parse_articles(raw)
     except Exception as e:
         logger.error("소재 재생성 오류: %s", e)
@@ -850,7 +850,7 @@ def _do_regenerate_series(client, user_id: str) -> None:
                            text="AI가 새 시리즈 기획안을 서치하고 있습니다… :hourglass_flowing_sand:")
     try:
         prompt = content_engine.build_series_prompt(sess["series_used_keywords"])
-        raw = content_engine.call_perplexity(prompt, PERPLEXITY_API_KEY, PERPLEXITY_MODEL)
+        raw = content_engine.call_openrouter(prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
         series = content_engine.parse_series(raw)
     except Exception as e:
         logger.error("시리즈 재생성 오류: %s", e)
