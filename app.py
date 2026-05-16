@@ -147,11 +147,13 @@ def _run_and_send(channel=None, update_ts=None):
 # ── 이벤트 핸들러 ────────────────────────────────────────────────────────────
 
 @app.message("테마기획")
-def handle_message_trigger(message, say):
+def handle_message_trigger(message, client):
+    user_id = message.get("user")
+    dm = client.conversations_open(users=user_id)["channel"]["id"]
     try:
-        _run_and_send(channel=message["channel"])
+        _run_and_send(channel=dm)
     except Exception as e:
-        say(f":x: 테마 생성 중 오류가 발생했습니다: {e}")
+        client.chat_postMessage(channel=dm, text=f":x: 테마 생성 중 오류가 발생했습니다: {e}")
 
 
 @app.command("/테마기획")
