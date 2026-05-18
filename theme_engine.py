@@ -4,6 +4,7 @@ OpenRouter API로 테마 키워드 + 제목 20개 생성, 콘텐츠 풀에서 �
 import json
 import os
 import re
+import time
 from datetime import datetime
 from collections import Counter
 
@@ -135,13 +136,21 @@ def generate_theme(extra_forbidden=None):
     )
 
     last_error = None
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             raw = _call_openrouter(user_prompt)
             return _parse_response(raw)
+        except requests.exceptions.HTTPError as e:
+            last_error = e
+            if e.response is not None and e.response.status_code == 429:
+                wait = 10 * (attempt + 1)  # 10초, 20초, 30초
+                time.sleep(wait)
+            else:
+                break
         except Exception as e:
             last_error = e
-    raise RuntimeError(f"테마 생성 실패 (2회 시도): {last_error}")
+            break
+    raise RuntimeError(f"테마 생성 실패 (3회 시도): {last_error}")
 
 
 def match_contents(keyword, min_count=5):
