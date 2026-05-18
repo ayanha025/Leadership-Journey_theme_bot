@@ -150,6 +150,7 @@ def _run_and_send(channel=None, update_ts=None):
 def handle_message_trigger(message, client):
     user_id = message.get("user")
     dm = client.conversations_open(users=user_id)["channel"]["id"]
+    client.chat_postMessage(channel=dm, text=":hourglass_flowing_sand: 테마기획 중입니다...")
     try:
         _run_and_send(channel=dm)
     except Exception as e:
@@ -160,6 +161,7 @@ def handle_message_trigger(message, client):
 def handle_slash_command(ack, command):
     ack()
     channel = command["channel_id"]
+    app.client.chat_postMessage(channel=channel, text=":hourglass_flowing_sand: 테마기획 중입니다...")
     try:
         _run_and_send(channel=channel)
     except Exception as e:
