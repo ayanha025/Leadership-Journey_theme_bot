@@ -1,0 +1,23 @@
+# 환경변수 (절대 커밋 금지)
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# 로컬 데이터 (Railway Volume에서 관리)
+data/theme_history.json
+data/scraped_contents.json
+
+# 대용량 파일
+*.xls
+*.xlsx
+
+# macOS
+.DS_Store
