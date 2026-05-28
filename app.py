@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import signal
+import threading
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -172,10 +173,7 @@ def handle_message_trigger(message, client):
     user_id = message.get("user")
     dm = client.conversations_open(users=user_id)["channel"]["id"]
     client.chat_postMessage(channel=dm, text=":hourglass_flowing_sand: 테마기획 중입니다...")
-    try:
-        _run_and_send(channel=dm)
-    except Exception as e:
-        client.chat_postMessage(channel=dm, text=f":x: 테마 생성 중 오류가 발생했습니다: {e}")
+    threading.Thread(target=_run_and_send, kwargs={"channel": dm}).start()
 
 
 @app.command("/테마기획")
@@ -183,13 +181,7 @@ def handle_slash_command(ack, command):
     ack()
     channel = command["channel_id"]
     app.client.chat_postMessage(channel=channel, text=":hourglass_flowing_sand: 테마기획 중입니다...")
-    try:
-        _run_and_send(channel=channel)
-    except Exception as e:
-        app.client.chat_postMessage(
-            channel=channel,
-            text=f":x: 테마 생성 중 오류가 발생했습니다: {e}",
-        )
+    threading.Thread(target=_run_and_send, kwargs={"channel": channel}).start()
 
 
 @app.action("regenerate_theme")
@@ -199,14 +191,11 @@ def handle_regenerate_button(ack, body):
     if current_kw and current_kw not in session["suggested_keywords"]:
         session["suggested_keywords"].append(current_kw)
 
-    try:
-        _run_and_send(
-            channel=session.get("last_channel") or body["channel"]["id"],
-            update_ts=session.get("last_ts"),
-        )
-    except Exception as e:
-        dm = session.get("last_channel") or body["channel"]["id"]
-        app.client.chat_postMessage(channel=dm, text=f":x: 재생성 오류: {e}")
+    channel = session.get("last_channel") or body["channel"]["id"]
+    threading.Thread(
+        target=_run_and_send,
+        kwargs={"channel": channel, "update_ts": session.get("last_ts")},
+    ).start()
 
 
 @app.action("confirm_theme")
