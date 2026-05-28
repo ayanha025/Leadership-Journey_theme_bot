@@ -18,17 +18,19 @@ logger = logging.getLogger(__name__)
 LOCK_FILE = "/tmp/hunet_ceo_bot.pid"
 
 def _ensure_single_instance():
+    current_pid = os.getpid()
     if os.path.exists(LOCK_FILE):
         try:
             with open(LOCK_FILE) as f:
                 old_pid = int(f.read().strip())
-            os.kill(old_pid, signal.SIGTERM)
-            logger.info(f"기존 프로세스(PID {old_pid}) 종료")
-            import time; time.sleep(1)
+            if old_pid > 1 and old_pid != current_pid:
+                os.kill(old_pid, signal.SIGTERM)
+                logger.info(f"기존 프로세스(PID {old_pid}) 종료")
+                import time; time.sleep(1)
         except (ProcessLookupError, ValueError, OSError):
             pass
     with open(LOCK_FILE, "w") as f:
-        f.write(str(os.getpid()))
+        f.write(str(current_pid))
 
 _ensure_single_instance()
 
