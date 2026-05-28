@@ -17,8 +17,8 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.6")
 CONTENT_CSV_PATH = os.getenv("CONTENT_CSV_PATH", "data/contents.csv")
-SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "data/scraped_contents.json")
-THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "data/theme_history.json")
+SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
+THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
 MONTHLY_DIRECTION_PATH = os.getenv("MONTHLY_DIRECTION_PATH", "data/monthly_direction.json")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"

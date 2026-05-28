@@ -5,7 +5,7 @@ import time
 
 import requests
 
-CACHE_PATH = "data/existing_articles.json"
+CACHE_PATH = os.getenv("EXISTING_ARTICLES_PATH", "storage/existing_articles.json")
 CACHE_TTL = 86400  # 24시간
 URL = "https://ceo.hunet.co.kr/membership/business-review"
 

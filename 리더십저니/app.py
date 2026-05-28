@@ -37,7 +37,7 @@ _ensure_single_instance()
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 TARGET_USER_ID = os.environ["TARGET_USER_ID"]
-THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "data/theme_history.json")
+THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
 
 # 프로세스 메모리 세션
 session = {

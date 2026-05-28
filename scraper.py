@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "data/scraped_contents.json")
-THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "data/theme_history.json")
+SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
+THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
 HUNET_SESSION_COOKIE = os.getenv("HUNET_SESSION_COOKIE", "")
 
 CONTENT_URL = "https://leadership.hunet.co.kr/journey/library?keyword_cd=CK92"

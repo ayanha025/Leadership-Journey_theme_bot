@@ -1,5 +1,6 @@
 import logging
 import os
+import signal
 import threading
 
 from dotenv import load_dotenv
@@ -14,8 +15,25 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+LOCK_FILE = "/tmp/hunet_ceo_bot.pid"
+
+def _ensure_single_instance():
+    if os.path.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE) as f:
+                old_pid = int(f.read().strip())
+            os.kill(old_pid, signal.SIGTERM)
+            logger.info(f"기존 프로세스(PID {old_pid}) 종료")
+            import time; time.sleep(1)
+        except (ProcessLookupError, ValueError, OSError):
+            pass
+    with open(LOCK_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+_ensure_single_instance()
+
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
-CONFIRMED_PATH = os.getenv("CONFIRMED_ARTICLES_PATH", "data/confirmed_articles.json")
+CONFIRMED_PATH = os.getenv("CONFIRMED_ARTICLES_PATH", "storage/confirmed_articles.json")
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "perplexity/sonar-pro")
 
