@@ -21,3 +21,7 @@ data/scraped_contents.json
 
 # macOS
 .DS_Store
+
+# 별도 레포로 관리
+리더십저니/
+휴넷CEO/
