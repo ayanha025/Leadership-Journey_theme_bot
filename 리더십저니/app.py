@@ -121,6 +121,7 @@ def _get_dm_channel():
 
 def _save_confirmed_theme(keyword):
     path = THEME_HISTORY_PATH
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     data = []
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
