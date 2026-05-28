@@ -170,6 +170,39 @@ def parse_series(raw: str) -> list:
         raise ValueError(f"JSON 파싱 실패: {e}")
 
 
+def _is_url_reachable(url: str, timeout: int = 6) -> bool:
+    if not url or not re.match(r"https?://", url):
+        return False
+    try:
+        r = requests.head(url, headers={"User-Agent": "Mozilla/5.0"},
+                         timeout=timeout, allow_redirects=True)
+        return r.status_code not in (404, 410)
+    except Exception:
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
+                            timeout=timeout, stream=True)
+            r.close()
+            return r.status_code not in (404, 410)
+        except Exception:
+            return False
+
+
+def filter_valid_urls(items: list) -> tuple:
+    """URL 실재 여부를 병렬로 검증 후 (valid, invalid) 반환"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    if not items:
+        return [], []
+    reachable = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=min(5, len(items))) as executor:
+        futures = {executor.submit(_is_url_reachable, item.get("sourceUrl", "")): i
+                   for i, item in enumerate(items)}
+        for future in as_completed(futures):
+            reachable[futures[future]] = future.result()
+    valid = [item for item, ok in zip(items, reachable) if ok]
+    invalid = [item for item, ok in zip(items, reachable) if not ok]
+    return valid, invalid
+
+
 def format_article_blocks(articles: list, date_str: str, citations: list = None) -> list:
     if not articles:
         return [{"type": "section", "text": {"type": "mrkdwn",

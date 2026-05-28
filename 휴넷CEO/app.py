@@ -71,6 +71,16 @@ def _run_article_search(client, user_id: str) -> None:
         prompt = content_engine.build_article_prompt(all_used, existing_titles)
         raw, citations = content_engine.call_openrouter(prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
         articles = content_engine.parse_articles(raw)
+        valid, invalid = content_engine.filter_valid_urls(articles)
+        if len(valid) < 3 and invalid:
+            extra = [a["keyword"] for a in invalid]
+            retry_prompt = content_engine.build_article_prompt(all_used + extra, existing_titles)
+            retry_raw, retry_citations = content_engine.call_openrouter(retry_prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
+            retry_valid, _ = content_engine.filter_valid_urls(content_engine.parse_articles(retry_raw))
+            valid.extend(retry_valid)
+            if retry_citations:
+                citations = retry_citations
+        articles = valid
     except Exception as e:
         logger.error("소재 서치 오류: %s", e)
         client.chat_update(channel=dm, ts=loading["ts"],
@@ -100,6 +110,16 @@ def _run_series_search(client, user_id: str) -> None:
         prompt = content_engine.build_series_prompt(all_used, existing_titles)
         raw, citations = content_engine.call_openrouter(prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
         series = content_engine.parse_series(raw)
+        valid, invalid = content_engine.filter_valid_urls(series)
+        if len(valid) < 3 and invalid:
+            extra = [s["keyword"] for s in invalid]
+            retry_prompt = content_engine.build_series_prompt(all_used + extra, existing_titles)
+            retry_raw, retry_citations = content_engine.call_openrouter(retry_prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
+            retry_valid, _ = content_engine.filter_valid_urls(content_engine.parse_series(retry_raw))
+            valid.extend(retry_valid)
+            if retry_citations:
+                citations = retry_citations
+        series = valid
     except Exception as e:
         logger.error("시리즈 서치 오류: %s", e)
         client.chat_update(channel=dm, ts=loading["ts"],
@@ -138,6 +158,16 @@ def _do_regenerate_article(client, user_id: str) -> None:
         prompt = content_engine.build_article_prompt(all_used, existing_titles)
         raw, citations = content_engine.call_openrouter(prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
         articles = content_engine.parse_articles(raw)
+        valid, invalid = content_engine.filter_valid_urls(articles)
+        if len(valid) < 3 and invalid:
+            extra = [a["keyword"] for a in invalid]
+            retry_prompt = content_engine.build_article_prompt(all_used + extra, existing_titles)
+            retry_raw, retry_citations = content_engine.call_openrouter(retry_prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
+            retry_valid, _ = content_engine.filter_valid_urls(content_engine.parse_articles(retry_raw))
+            valid.extend(retry_valid)
+            if retry_citations:
+                citations = retry_citations
+        articles = valid
     except Exception as e:
         logger.error("소재 재생성 오류: %s", e)
         client.chat_postMessage(channel=dm,
@@ -171,6 +201,16 @@ def _do_regenerate_series(client, user_id: str) -> None:
         prompt = content_engine.build_series_prompt(all_used, existing_titles)
         raw, citations = content_engine.call_openrouter(prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
         series = content_engine.parse_series(raw)
+        valid, invalid = content_engine.filter_valid_urls(series)
+        if len(valid) < 3 and invalid:
+            extra = [s["keyword"] for s in invalid]
+            retry_prompt = content_engine.build_series_prompt(all_used + extra, existing_titles)
+            retry_raw, retry_citations = content_engine.call_openrouter(retry_prompt, OPENROUTER_API_KEY, OPENROUTER_MODEL)
+            retry_valid, _ = content_engine.filter_valid_urls(content_engine.parse_series(retry_raw))
+            valid.extend(retry_valid)
+            if retry_citations:
+                citations = retry_citations
+        series = valid
     except Exception as e:
         logger.error("시리즈 재생성 오류: %s", e)
         client.chat_postMessage(channel=dm,
