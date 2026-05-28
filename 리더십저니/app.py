@@ -4,6 +4,7 @@
 import json
 import logging
 import os
+import signal
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -16,6 +17,23 @@ from theme_engine import generate_theme, match_contents, get_direction
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+LOCK_FILE = "/tmp/leadership_journey_bot.pid"
+
+def _ensure_single_instance():
+    if os.path.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE) as f:
+                old_pid = int(f.read().strip())
+            os.kill(old_pid, signal.SIGTERM)
+            logger.info(f"기존 프로세스(PID {old_pid}) 종료")
+            import time; time.sleep(1)
+        except (ProcessLookupError, ValueError, OSError):
+            pass
+    with open(LOCK_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+_ensure_single_instance()
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 TARGET_USER_ID = os.environ["TARGET_USER_ID"]
