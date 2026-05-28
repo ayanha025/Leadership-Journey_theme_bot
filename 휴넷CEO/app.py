@@ -258,6 +258,10 @@ def handle_confirm_article(ack, body, client):
         client.chat_postMessage(channel=_open_dm(client, user_id),
                                 text="확정할 소재를 먼저 선택해주세요.")
         return
+    if idx >= len(sess["articles"]):
+        client.chat_postMessage(channel=_open_dm(client, user_id),
+                                text="소재 목록이 변경되었습니다. 다시 선택해주세요.")
+        return
     item = {**sess["articles"][idx], "type": "article"}
     storage.append_confirmed(item, CONFIRMED_PATH)
     src = f"<{item['sourceUrl']}|{item['source']}>" if item.get("sourceUrl") else item.get("source", "")
@@ -296,6 +300,10 @@ def handle_confirm_series(ack, body, client):
     if idx is None:
         client.chat_postMessage(channel=_open_dm(client, user_id),
                                 text="확정할 시리즈를 먼저 선택해주세요.")
+        return
+    if idx >= len(sess["series"]):
+        client.chat_postMessage(channel=_open_dm(client, user_id),
+                                text="시리즈 목록이 변경되었습니다. 다시 선택해주세요.")
         return
     item = {**sess["series"][idx], "type": "series"}
     storage.append_confirmed(item, CONFIRMED_PATH)
