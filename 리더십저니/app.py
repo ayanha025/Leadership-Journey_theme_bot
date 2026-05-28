@@ -135,34 +135,40 @@ def _save_confirmed_theme(keyword):
 
 def _run_and_send(channel=None, update_ts=None):
     """테마 생성 후 DM 발송 또는 메시지 업데이트"""
-    scrape_warnings = run_scraping()
-
-    result = generate_theme(extra_forbidden=session["suggested_keywords"])
-    keyword = result["keyword"]
-    titles = {k: result[k] for k in ["youtube", "educational", "meme", "aggro"]}
-    contents = match_contents(keyword)
-
-    session["current"] = {"keyword": keyword, "titles": titles, "contents": contents}
-
-    month = datetime.now().month
-    direction = get_direction(month)
-    text = _build_message_text(month, direction, keyword, titles, contents)
-    blocks = _build_blocks(text, titles)
-
     dm_channel = channel or _get_dm_channel()
+    try:
+        scrape_warnings = run_scraping()
 
-    if update_ts:
-        app.client.chat_update(channel=dm_channel, ts=update_ts, text=text, blocks=blocks)
-        session["last_ts"] = update_ts
-    else:
-        resp = app.client.chat_postMessage(channel=dm_channel, text=text, blocks=blocks)
-        session["last_ts"] = resp["ts"]
-        session["last_channel"] = dm_channel
+        result = generate_theme(extra_forbidden=session["suggested_keywords"])
+        keyword = result["keyword"]
+        titles = {k: result[k] for k in ["youtube", "educational", "meme", "aggro"]}
+        contents = match_contents(keyword)
 
-    if scrape_warnings:
+        session["current"] = {"keyword": keyword, "titles": titles, "contents": contents}
+
+        month = datetime.now().month
+        direction = get_direction(month)
+        text = _build_message_text(month, direction, keyword, titles, contents)
+        blocks = _build_blocks(text, titles)
+
+        if update_ts:
+            app.client.chat_update(channel=dm_channel, ts=update_ts, text=text, blocks=blocks)
+            session["last_ts"] = update_ts
+        else:
+            resp = app.client.chat_postMessage(channel=dm_channel, text=text, blocks=blocks)
+            session["last_ts"] = resp["ts"]
+            session["last_channel"] = dm_channel
+
+        if scrape_warnings:
+            app.client.chat_postMessage(
+                channel=dm_channel,
+                text=":warning: " + " | ".join(scrape_warnings),
+            )
+    except Exception as e:
+        logger.error("테마 생성 오류: %s", e)
         app.client.chat_postMessage(
             channel=dm_channel,
-            text=":warning: " + " | ".join(scrape_warnings),
+            text=":x: 테마 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
         )
 
 
