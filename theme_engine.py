@@ -118,11 +118,17 @@ def _call_openrouter(user_prompt):
                 return result
             except requests.exceptions.HTTPError as e:
                 last_error = e
+                body_text = ""
+                if e.response is not None:
+                    try:
+                        body_text = e.response.json()
+                    except Exception:
+                        body_text = e.response.text[:300]
                 if e.response is not None and e.response.status_code == 429 and attempt == 0:
                     logger.warning("모델 %s 요청 한도 초과, 20초 대기...", model)
                     time.sleep(20)
                     continue
-                logger.warning("모델 %s HTTP 오류 (%s), 다음 모델 시도...", model, e)
+                logger.warning("모델 %s HTTP 오류 (%s) 응답: %s, 다음 모델 시도...", model, e, body_text)
                 break
             except Exception as e:
                 last_error = e
