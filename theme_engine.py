@@ -93,6 +93,7 @@ def _get_content_keywords():
 
 
 def _call_openrouter(user_prompt):
+    """모델 목록을 순서대로 시도, HTTP 오류·JSON 파싱 실패 모두 다음 모델로 넘어감"""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -100,22 +101,33 @@ def _call_openrouter(user_prompt):
     models = ([OPENROUTER_MODEL] if OPENROUTER_MODEL else []) + FALLBACK_MODELS
     last_error = None
     for model in models:
-        try:
-            body = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-            }
-            resp = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=30)
-            resp.raise_for_status()
-            logger.info("OpenRouter 모델 사용: %s", model)
-            return resp.json()["choices"][0]["message"]["content"]
-        except requests.exceptions.HTTPError as e:
-            logger.warning("모델 %s 실패 (%s), 다음 모델 시도...", model, e)
-            last_error = e
-            continue
+        for attempt in range(2):  # 429 rate limit일 때만 한 번 재시도
+            try:
+                body = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                }
+                resp = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=30)
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"]
+                result = _parse_response(content)
+                logger.info("OpenRouter 모델 사용: %s", model)
+                return result
+            except requests.exceptions.HTTPError as e:
+                last_error = e
+                if e.response is not None and e.response.status_code == 429 and attempt == 0:
+                    logger.warning("모델 %s 요청 한도 초과, 20초 대기...", model)
+                    time.sleep(20)
+                    continue
+                logger.warning("모델 %s HTTP 오류 (%s), 다음 모델 시도...", model, e)
+                break
+            except Exception as e:
+                last_error = e
+                logger.warning("모델 %s 실패 (%s), 다음 모델 시도...", model, e)
+                break
     raise RuntimeError(f"모든 모델 실패: {last_error}")
 
 
@@ -152,22 +164,7 @@ def generate_theme(extra_forbidden=None):
         "위 조건에 맞는 테마 기획안을 JSON으로 생성하세요."
     )
 
-    last_error = None
-    for attempt in range(3):
-        try:
-            raw = _call_openrouter(user_prompt)
-            return _parse_response(raw)
-        except requests.exceptions.HTTPError as e:
-            last_error = e
-            if e.response is not None and e.response.status_code == 429:
-                wait = 10 * (attempt + 1)  # 10초, 20초, 30초
-                time.sleep(wait)
-            else:
-                break
-        except Exception as e:
-            last_error = e
-            break
-    raise RuntimeError(f"테마 생성 실패 (3회 시도): {last_error}")
+    return _call_openrouter(user_prompt)
 
 
 def match_contents(keyword, min_count=5):
