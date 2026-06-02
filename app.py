@@ -224,6 +224,14 @@ def handle_confirm(ack, body):
     ]
 
     channel = session.get("last_channel") or body["channel"]["id"]
+
+    if not options:
+        app.client.chat_postMessage(
+            channel=channel,
+            text=":warning: 확정할 제목이 없습니다. 테마를 다시 생성해주세요.",
+        )
+        return
+
     app.client.chat_postMessage(
         channel=channel,
         text="확정할 제목을 선택해주세요.",

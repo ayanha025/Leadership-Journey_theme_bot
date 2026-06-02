@@ -20,9 +20,9 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "")
 FALLBACK_MODELS = [
-    "google/gemini-flash-1.5",
     "anthropic/claude-3-haiku",
     "openai/gpt-4o-mini",
+    "google/gemini-flash-1.5",
 ]
 CONTENT_CSV_PATH = os.getenv("CONTENT_CSV_PATH", "data/contents.csv")
 SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
