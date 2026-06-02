@@ -2,11 +2,14 @@
 OpenRouter API로 테마 키워드 + 제목 20개 생성, 콘텐츠 풀에서 관련 항목 선별
 """
 import json
+import logging
 import os
 import re
 import time
 from datetime import datetime
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 import requests
@@ -15,7 +18,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.6")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "")
+FALLBACK_MODELS = [
+    "google/gemini-flash-1.5",
+    "anthropic/claude-3-haiku",
+    "openai/gpt-4o-mini",
+]
 CONTENT_CSV_PATH = os.getenv("CONTENT_CSV_PATH", "data/contents.csv")
 SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
 THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
@@ -89,17 +97,26 @@ def _call_openrouter(user_prompt):
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
     }
-    body = {
-        "model": OPENROUTER_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        "response_format": {"type": "json_object"},
-    }
-    resp = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=30)
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    models = ([OPENROUTER_MODEL] if OPENROUTER_MODEL else []) + FALLBACK_MODELS
+    last_error = None
+    for model in models:
+        try:
+            body = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+            }
+            resp = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=30)
+            resp.raise_for_status()
+            logger.info("OpenRouter 모델 사용: %s", model)
+            return resp.json()["choices"][0]["message"]["content"]
+        except requests.exceptions.HTTPError as e:
+            logger.warning("모델 %s 실패 (%s), 다음 모델 시도...", model, e)
+            last_error = e
+            continue
+    raise RuntimeError(f"모든 모델 실패: {last_error}")
 
 
 def _parse_response(text):

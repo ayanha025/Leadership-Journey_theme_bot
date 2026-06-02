@@ -135,8 +135,10 @@ def _save_confirmed_theme(keyword):
 
 def _run_and_send(channel=None, update_ts=None):
     """테마 생성 후 DM 발송 또는 메시지 업데이트"""
-    dm_channel = channel or _get_dm_channel()
+    dm_channel = channel
     try:
+        if not dm_channel:
+            dm_channel = _get_dm_channel()
         scrape_warnings = run_scraping()
 
         result = generate_theme(extra_forbidden=session["suggested_keywords"])
@@ -165,11 +167,12 @@ def _run_and_send(channel=None, update_ts=None):
                 text=":warning: " + " | ".join(scrape_warnings),
             )
     except Exception as e:
-        logger.error("테마 생성 오류: %s", e)
-        app.client.chat_postMessage(
-            channel=dm_channel,
-            text=":x: 테마 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-        )
+        logger.error("테마 생성 오류: %s", e, exc_info=True)
+        if dm_channel:
+            app.client.chat_postMessage(
+                channel=dm_channel,
+                text=":x: 테마 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            )
 
 
 # ── 이벤트 핸들러 ────────────────────────────────────────────────────────────
@@ -265,6 +268,8 @@ def handle_title_select(ack, body):
 # ── 실행 ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    logger.info("리더십저니 Slack 앱 시작")
-    handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
+    logger.info("리더십저니 Slack 앱 시작 (PID: %s)", os.getpid())
+    app_token = os.environ["SLACK_APP_TOKEN"]
+    logger.info("App Token 앞 10자: %s...", app_token[:10])
+    handler = SocketModeHandler(app, app_token)
     handler.start()
