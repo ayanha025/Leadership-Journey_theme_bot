@@ -28,6 +28,7 @@ FALLBACK_MODELS = [
 CONTENT_CSV_PATH = os.getenv("CONTENT_CSV_PATH", "data/contents.csv")
 SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
 THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
+THEME_HISTORY_SEED_PATH = os.getenv("THEME_HISTORY_SEED_PATH", "data/theme_history_seed.json")
 MONTHLY_DIRECTION_PATH = os.getenv("MONTHLY_DIRECTION_PATH", "data/monthly_direction.json")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -74,9 +75,11 @@ def _get_monthly_direction():
 
 def _get_forbidden_list(extra_keywords=None):
     history = _load_json(THEME_HISTORY_PATH, [])
+    seed = _load_json(THEME_HISTORY_SEED_PATH, [])
+    combined = list(dict.fromkeys(history + seed))  # 중복 제거, 순서 유지
     if extra_keywords:
-        history = history + extra_keywords
-    return history
+        combined = combined + extra_keywords
+    return combined
 
 
 def _get_content_keywords():
