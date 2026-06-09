@@ -213,12 +213,30 @@ def _parse_direction_groups(direction):
     return [p.strip() for p in parts if p.strip()]
 
 
+_SEASONAL_RULES = [
+    ({"연초"}, range(1, 4)),        # 1-3월만
+    ({"연말"}, range(10, 13)),      # 10-12월만
+    ({"신년", "새해"}, range(1, 3)), # 1-2월만
+]
+
+
+def _is_seasonal_mismatch(title: str, month: int) -> bool:
+    """제목에 계절 고정 키워드가 있고 현재 월이 유효 범위 밖이면 True"""
+    for keywords, valid_months in _SEASONAL_RULES:
+        if any(kw in title for kw in keywords):
+            if month not in valid_months:
+                return True
+    return False
+
+
 def match_contents(keyword, min_count=5):
     """
     월별 기획 방향의 서브 그룹별로 콘텐츠를 스코어링하고
     라운드로빈으로 고르게 선별해 아티클/영상 혼합 min_count개 반환
     """
+    current_month = datetime.now().month
     df = pd.read_csv(CONTENT_CSV_PATH)
+    df = df[~df["title"].apply(lambda t: _is_seasonal_mismatch(str(t), current_month))]
     used = _get_used_content_titles()
     if used:
         df = df[~df["title"].isin(used)]
