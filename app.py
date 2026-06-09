@@ -111,6 +111,12 @@ def _build_blocks(text, titles=None):
                     "action_id": "confirm_theme",
                     "value": json.dumps(all_titles, ensure_ascii=False),
                 },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "🚫 종료"},
+                    "action_id": "stop_theme",
+                    "style": "danger",
+                },
             ],
         },
     ]
@@ -285,6 +291,26 @@ def handle_title_select(ack, body):
         ts=ts,
         text=confirm_text,
         blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": confirm_text}}],
+    )
+
+    session["suggested_keywords"] = []
+    session["current"] = {"keyword": None, "titles": {}, "contents": []}
+    session["last_ts"] = None
+    session["last_channel"] = None
+
+
+@app.action("stop_theme")
+def handle_stop_button(ack, body):
+    ack()
+    channel = body["channel"]["id"]
+    ts = body["message"]["ts"]
+
+    stop_text = ":no_entry: 테마 기획이 종료되었습니다."
+    app.client.chat_update(
+        channel=channel,
+        ts=ts,
+        text=stop_text,
+        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": stop_text}}],
     )
 
     session["suggested_keywords"] = []
