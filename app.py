@@ -151,18 +151,18 @@ def _save_confirmed_contents(contents):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def _run_and_send(channel=None, update_ts=None):
+def _run_and_send(channel=None, update_ts=None, keep_contents=False):
     """테마 생성 후 DM 발송 또는 메시지 업데이트"""
     dm_channel = channel
     try:
         if not dm_channel:
             dm_channel = _get_dm_channel()
-        scrape_warnings = run_scraping()
+        scrape_warnings = run_scraping() if not keep_contents else []
 
         result = generate_theme(extra_forbidden=session["suggested_keywords"])
         keyword = result["keyword"]
         titles = {k: result[k] for k in ["youtube", "educational", "meme", "aggro"]}
-        contents = match_contents(keyword)
+        contents = session["current"].get("contents", []) if keep_contents else match_contents(keyword)
 
         session["current"] = {"keyword": keyword, "titles": titles, "contents": contents}
 
@@ -222,7 +222,7 @@ def handle_regenerate_button(ack, body):
     app.client.chat_postMessage(channel=channel, text=":hourglass_flowing_sand: 테마 재생성 중입니다...")
     threading.Thread(
         target=_run_and_send,
-        kwargs={"channel": channel},
+        kwargs={"channel": channel, "keep_contents": True},
     ).start()
 
 
