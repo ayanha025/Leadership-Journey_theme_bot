@@ -167,8 +167,10 @@ def _run_and_send(channel=None, update_ts=None, keep_contents=False):
 
         result = generate_theme(extra_forbidden=session["suggested_keywords"])
         keyword = result["keyword"]
+        logger.info("생성된 테마 키워드: %s", keyword)
         titles = {k: result[k] for k in ["youtube", "educational", "meme", "aggro"]}
         contents = session["current"].get("contents", []) if keep_contents else match_contents(keyword)
+        logger.info("매핑된 콘텐츠 (%d개): %s", len(contents), [c["title"] for c in contents])
 
         session["current"] = {"keyword": keyword, "titles": titles, "contents": contents}
 

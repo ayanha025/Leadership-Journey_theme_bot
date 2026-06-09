@@ -231,9 +231,13 @@ def match_contents(keyword, min_count=5):
         if not reduced:
             # 모든 콘텐츠를 점수 0으로라도 채움
             df = pd.read_csv(CONTENT_CSV_PATH)
+            if used:
+                df = df[~df["title"].isin(used)]
             df["_score"] = 0
             break
         df_all = pd.read_csv(CONTENT_CSV_PATH)
+        if used:
+            df_all = df_all[~df_all["title"].isin(used)]
 
         def score_reduced(row, rt=reduced):
             text = " ".join([
