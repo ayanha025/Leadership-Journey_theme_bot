@@ -64,8 +64,11 @@ SYSTEM_PROMPT = """당신은 리더십 교육 콘텐츠 큐레이터입니다.
 
 def _load_json(path, default):
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            logger.warning("JSON 읽기 실패, 기본값 사용: %s", path)
     return default
 
 
@@ -93,8 +96,8 @@ def _get_content_keywords():
     for col in ["tags", "cat"]:
         if col in df.columns:
             for val in df[col].dropna():
-                words.extend(str(val).split())
-    top = [w for w, _ in Counter(words).most_common(50) if len(w) >= 2]
+                words.extend(w for w in re.split(r'[#\s]+', str(val)) if w)
+    top = [w for w, _ in Counter(words).most_common(50) if len(w) >= 2 and w != "#"]
     return " ".join(top)
 
 

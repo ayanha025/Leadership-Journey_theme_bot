@@ -132,8 +132,12 @@ def _save_confirmed_theme(keyword):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     data = []
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            logger.warning("theme_history.json 읽기 실패, 초기화")
+            data = []
     if keyword not in data:
         data.append(keyword)
         with open(path, "w", encoding="utf-8") as f:
@@ -145,8 +149,12 @@ def _save_confirmed_contents(contents):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     data = []
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            logger.warning("content_history.json 읽기 실패, 초기화")
+            data = []
     existing = set(data)
     for c in contents:
         title = c.get("title", "").strip()
@@ -281,25 +289,31 @@ def handle_confirm(ack, body):
 @app.action("select_title")
 def handle_title_select(ack, body):
     ack()
-    selected_title = body["actions"][0]["selected_option"]["value"]
-    _save_confirmed_theme(selected_title)
-    _save_confirmed_contents(session["current"].get("contents", []))
+    try:
+        selected_title = body["actions"][0]["selected_option"]["value"]
+        _save_confirmed_theme(selected_title)
+        _save_confirmed_contents(session["current"].get("contents", []))
 
-    channel = body["channel"]["id"]
-    ts = body["message"]["ts"]
+        channel = body["channel"]["id"]
+        ts = body["message"]["ts"]
 
-    confirm_text = f":white_check_mark: 확정되었습니다.\n선정 테마 제목: *{selected_title}*"
-    app.client.chat_update(
-        channel=channel,
-        ts=ts,
-        text=confirm_text,
-        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": confirm_text}}],
-    )
+        confirm_text = f":white_check_mark: 확정되었습니다.\n선정 테마 제목: *{selected_title}*"
+        app.client.chat_update(
+            channel=channel,
+            ts=ts,
+            text=confirm_text,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": confirm_text}}],
+        )
 
-    session["suggested_keywords"] = []
-    session["current"] = {"keyword": None, "titles": {}, "contents": []}
-    session["last_ts"] = None
-    session["last_channel"] = None
+        session["suggested_keywords"] = []
+        session["current"] = {"keyword": None, "titles": {}, "contents": []}
+        session["last_ts"] = None
+        session["last_channel"] = None
+    except Exception as e:
+        logger.error("테마 확정 오류: %s", e, exc_info=True)
+        channel = (body.get("channel") or {}).get("id")
+        if channel:
+            app.client.chat_postMessage(channel=channel, text=":x: 확정 처리 중 오류가 발생했습니다.")
 
 
 @app.action("stop_theme")

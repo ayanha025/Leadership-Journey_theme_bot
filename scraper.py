@@ -33,8 +33,11 @@ def _get_session():
 
 def _load_json(path, default):
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return default
     return default
 
 
@@ -46,8 +49,8 @@ def _save_json(path, data):
 
 def scrape_new_contents():
     """신규 콘텐츠 제목 수집 후 scraped_contents.json에 신규 항목만 추가"""
-    existing = set(_load_json(SCRAPED_CONTENTS_PATH, [])) \
-             | set(_load_json(CONTENT_HISTORY_SEED_PATH, []))
+    scraped_existing = _load_json(SCRAPED_CONTENTS_PATH, [])
+    all_seen = set(scraped_existing) | set(_load_json(CONTENT_HISTORY_SEED_PATH, []))
     warning = None
 
     try:
@@ -56,7 +59,6 @@ def scrape_new_contents():
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # 상단 12개 콘텐츠 제목 수집 (Task 7에서 실제 셀렉터로 조정)
         titles = []
         for el in soup.select(".content-title, .item-title, h3, h4")[:20]:
             t = el.get_text(strip=True)
@@ -65,9 +67,9 @@ def scrape_new_contents():
             if len(titles) >= 12:
                 break
 
-        new_titles = [t for t in titles if t not in existing]
+        new_titles = [t for t in titles if t not in all_seen]
         if new_titles:
-            updated = list(existing) + new_titles
+            updated = scraped_existing + new_titles
             _save_json(SCRAPED_CONTENTS_PATH, updated)
             print(f"신규 콘텐츠 {len(new_titles)}개 저장")
         else:
@@ -82,8 +84,8 @@ def scrape_new_contents():
 
 def scrape_new_themes():
     """신규 테마명 수집 후 theme_history.json에 신규 항목만 추가"""
-    existing = set(_load_json(THEME_HISTORY_PATH, [])) \
-             | set(_load_json(THEME_HISTORY_SEED_PATH, []))
+    theme_existing = _load_json(THEME_HISTORY_PATH, [])
+    all_seen = set(theme_existing) | set(_load_json(THEME_HISTORY_SEED_PATH, []))
     warning = None
 
     try:
@@ -98,9 +100,9 @@ def scrape_new_themes():
             if len(t) >= 8 and t not in UI_TEXTS:
                 page_themes.append(t)
 
-        new_themes = [t for t in page_themes if t not in existing]
+        new_themes = [t for t in page_themes if t not in all_seen]
         if new_themes:
-            updated = list(existing) + new_themes
+            updated = theme_existing + new_themes
             _save_json(THEME_HISTORY_PATH, updated)
             print(f"신규 테마 {len(new_themes)}개 저장")
         else:
