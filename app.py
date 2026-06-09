@@ -41,6 +41,7 @@ _ensure_single_instance()
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 TARGET_USER_ID = os.environ["TARGET_USER_ID"]
 THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
+CONTENT_HISTORY_PATH = os.getenv("CONTENT_HISTORY_PATH", "storage/content_history.json")
 
 # 프로세스 메모리 세션
 session = {
@@ -131,6 +132,23 @@ def _save_confirmed_theme(keyword):
         data.append(keyword)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _save_confirmed_contents(contents):
+    path = CONTENT_HISTORY_PATH
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    data = []
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    existing = set(data)
+    for c in contents:
+        title = c.get("title", "").strip()
+        if title and title not in existing:
+            data.append(title)
+            existing.add(title)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def _run_and_send(channel=None, update_ts=None):
@@ -255,6 +273,7 @@ def handle_title_select(ack, body):
     ack()
     selected_title = body["actions"][0]["selected_option"]["value"]
     _save_confirmed_theme(selected_title)
+    _save_confirmed_contents(session["current"].get("contents", []))
 
     channel = body["channel"]["id"]
     ts = body["message"]["ts"]

@@ -29,6 +29,8 @@ CONTENT_CSV_PATH = os.getenv("CONTENT_CSV_PATH", "data/contents.csv")
 SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
 THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
 THEME_HISTORY_SEED_PATH = os.getenv("THEME_HISTORY_SEED_PATH", "data/theme_history_seed.json")
+CONTENT_HISTORY_PATH = os.getenv("CONTENT_HISTORY_PATH", "storage/content_history.json")
+CONTENT_HISTORY_SEED_PATH = os.getenv("CONTENT_HISTORY_SEED_PATH", "data/content_history_seed.json")
 MONTHLY_DIRECTION_PATH = os.getenv("MONTHLY_DIRECTION_PATH", "data/monthly_direction.json")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -177,12 +179,22 @@ def generate_theme(extra_forbidden=None):
     return _call_openrouter(user_prompt)
 
 
+def _get_used_content_titles():
+    """runtime + seed에서 이미 사용된 콘텐츠 제목 목록 반환"""
+    runtime = _load_json(CONTENT_HISTORY_PATH, [])
+    seed = _load_json(CONTENT_HISTORY_SEED_PATH, [])
+    return set(runtime + seed)
+
+
 def match_contents(keyword, min_count=5):
     """
     keyword 토큰과 contents.csv의 tags+cat+title 겹침으로 점수 계산,
-    아티클/영상 혼합 min_count개 이상 반환
+    이미 사용된 콘텐츠 제외 후 아티클/영상 혼합 min_count개 이상 반환
     """
     df = pd.read_csv(CONTENT_CSV_PATH)
+    used = _get_used_content_titles()
+    if used:
+        df = df[~df["title"].isin(used)]
 
     # 스크래핑된 신규 콘텐츠 제목도 포함
     scraped = _load_json(SCRAPED_CONTENTS_PATH, [])
@@ -194,6 +206,8 @@ def match_contents(keyword, min_count=5):
             "tags": [""] * len(scraped),
         })
         df = pd.concat([df, extras], ignore_index=True)
+        if used:
+            df = df[~df["title"].isin(used)]
 
     tokens = set(keyword.split())
 
