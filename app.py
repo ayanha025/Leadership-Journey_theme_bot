@@ -219,6 +219,7 @@ def handle_regenerate_button(ack, body):
         session["suggested_keywords"].append(current_kw)
 
     channel = session.get("last_channel") or body["channel"]["id"]
+    app.client.chat_postMessage(channel=channel, text=":hourglass_flowing_sand: 테마 재생성 중입니다...")
     threading.Thread(
         target=_run_and_send,
         kwargs={"channel": channel},
