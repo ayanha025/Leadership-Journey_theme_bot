@@ -146,13 +146,29 @@ def _call_openrouter(user_prompt):
     raise RuntimeError(f"모든 모델 실패: {last_error}")
 
 
+def _extract_first_json_object(text):
+    """중괄호 카운팅으로 첫 번째 완전한 JSON 객체 추출"""
+    start = text.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    for i, c in enumerate(text[start:], start):
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
 def _parse_response(text):
     """JSON 블록 추출 및 키 검증"""
     clean = re.sub(r"```json|```", "", text).strip()
-    match = re.search(r'\{.*\}', clean, re.DOTALL)
-    if not match:
+    json_str = _extract_first_json_object(clean)
+    if not json_str:
         raise ValueError("JSON 블록을 찾을 수 없습니다")
-    result = json.loads(match.group(0))
+    result = json.loads(json_str)
     required = {"keyword", "youtube", "educational", "meme", "aggro"}
     if not required.issubset(result.keys()):
         raise ValueError(f"필수 키 누락: {required - result.keys()}")
