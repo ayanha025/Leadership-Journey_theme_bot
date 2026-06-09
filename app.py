@@ -325,6 +325,15 @@ def handle_stop_button(ack, body):
 # ── 실행 ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # 임시: Railway 볼륨 content_history 확인용
+    _ch_path = os.environ.get("CONTENT_HISTORY_PATH", "storage/content_history.json")
+    if os.path.exists(_ch_path):
+        import json as _json
+        _ch = _json.load(open(_ch_path, encoding="utf-8"))
+        logger.info("[DEBUG] content_history 항목 수: %d", len(_ch))
+        logger.info("[DEBUG] content_history 전체: %s", _json.dumps(_ch, ensure_ascii=False))
+    else:
+        logger.info("[DEBUG] content_history.json 없음 (경로: %s)", _ch_path)
     logger.info("리더십저니 Slack 앱 시작 (PID: %s)", os.getpid())
     app_token = os.environ["SLACK_APP_TOKEN"]
     logger.info("App Token 앞 10자: %s...", app_token[:10])
