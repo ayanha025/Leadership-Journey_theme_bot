@@ -11,6 +11,8 @@ load_dotenv()
 
 SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
 THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
+THEME_HISTORY_SEED_PATH = os.getenv("THEME_HISTORY_SEED_PATH", "data/theme_history_seed.json")
+CONTENT_HISTORY_SEED_PATH = os.getenv("CONTENT_HISTORY_SEED_PATH", "data/content_history_seed.json")
 HUNET_SESSION_COOKIE = os.getenv("HUNET_SESSION_COOKIE", "")
 
 CONTENT_URL = "https://leadership.hunet.co.kr/journey/library?keyword_cd=CK92"
@@ -44,7 +46,8 @@ def _save_json(path, data):
 
 def scrape_new_contents():
     """신규 콘텐츠 제목 수집 후 scraped_contents.json에 신규 항목만 추가"""
-    existing = set(_load_json(SCRAPED_CONTENTS_PATH, []))
+    existing = set(_load_json(SCRAPED_CONTENTS_PATH, [])) \
+             | set(_load_json(CONTENT_HISTORY_SEED_PATH, []))
     warning = None
 
     try:
@@ -79,7 +82,8 @@ def scrape_new_contents():
 
 def scrape_new_themes():
     """신규 테마명 수집 후 theme_history.json에 신규 항목만 추가"""
-    existing = set(_load_json(THEME_HISTORY_PATH, []))
+    existing = set(_load_json(THEME_HISTORY_PATH, [])) \
+             | set(_load_json(THEME_HISTORY_SEED_PATH, []))
     warning = None
 
     try:
