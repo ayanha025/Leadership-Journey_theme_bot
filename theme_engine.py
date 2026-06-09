@@ -186,17 +186,24 @@ def _get_used_content_titles():
     return set(runtime + seed)
 
 
+def _parse_direction_groups(direction):
+    """월별 기획 방향을 서브 키워드 그룹으로 분리 (과/와/·/및 기준)
+    과/와는 앞에 한글 2글자 이상이 붙은 경우만 구분자로 인식 (성과·결과 등 복합어 오분리 방지)
+    """
+    parts = re.split(r'\s*·\s*|\s*및\s*|(?<=[가-힣][가-힣])(?:과|와)(?=\s)', direction)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def match_contents(keyword, min_count=5):
     """
-    keyword 토큰과 contents.csv의 tags+cat+title 겹침으로 점수 계산,
-    이미 사용된 콘텐츠 제외 후 아티클/영상 혼합 min_count개 이상 반환
+    월별 기획 방향의 서브 그룹별로 콘텐츠를 스코어링하고
+    라운드로빈으로 고르게 선별해 아티클/영상 혼합 min_count개 반환
     """
     df = pd.read_csv(CONTENT_CSV_PATH)
     used = _get_used_content_titles()
     if used:
         df = df[~df["title"].isin(used)]
 
-    # 스크래핑된 신규 콘텐츠 제목도 포함
     scraped = _load_json(SCRAPED_CONTENTS_PATH, [])
     if scraped:
         extras = pd.DataFrame({
@@ -209,9 +216,10 @@ def match_contents(keyword, min_count=5):
         if used:
             df = df[~df["title"].isin(used)]
 
-    tokens = set(keyword.split())
+    _, direction = _get_monthly_direction()
+    groups = _parse_direction_groups(direction)
 
-    def score(row):
+    def score_tokens(row, tokens):
         text = " ".join([
             str(row.get("tags", "") or ""),
             str(row.get("cat", "") or ""),
@@ -219,50 +227,54 @@ def match_contents(keyword, min_count=5):
         ])
         return sum(1 for t in tokens if t in text)
 
-    df["_score"] = df.apply(score, axis=1)
-    df = df[df["_score"] > 0].sort_values("_score", ascending=False)
+    # 그룹별로 아티클/영상 혼합 후보 목록 생성
+    group_candidates = []
+    for group in groups:
+        tokens = set(group.split())
+        scored = df.copy()
+        scored["_score"] = scored.apply(lambda r: score_tokens(r, tokens), axis=1)
+        scored = scored[scored["_score"] > 0].sort_values("_score", ascending=False)
+        arts = scored[scored["type"] == "아티클"].reset_index(drop=True)
+        vids = scored[scored["type"] == "영상"].reset_index(drop=True)
+        mixed = []
+        ai, vi = 0, 0
+        while ai < len(arts) or vi < len(vids):
+            if ai < len(arts):
+                mixed.append(arts.iloc[ai].to_dict())
+                ai += 1
+            if vi < len(vids):
+                mixed.append(vids.iloc[vi].to_dict())
+                vi += 1
+        group_candidates.append(mixed)
 
-    # 5개 미만이면 토큰 1개씩 줄여가며 완화
-    token_list = list(tokens)
-    for drop_count in range(1, len(token_list) + 1):
-        if len(df) >= min_count:
-            break
-        reduced = set(token_list[drop_count:]) if drop_count < len(token_list) else set()
-        if not reduced:
-            # 모든 콘텐츠를 점수 0으로라도 채움
-            df = pd.read_csv(CONTENT_CSV_PATH)
-            if used:
-                df = df[~df["title"].isin(used)]
-            df["_score"] = 0
-            break
-        df_all = pd.read_csv(CONTENT_CSV_PATH)
-        if used:
-            df_all = df_all[~df_all["title"].isin(used)]
-
-        def score_reduced(row, rt=reduced):
-            text = " ".join([
-                str(row.get("tags", "") or ""),
-                str(row.get("cat", "") or ""),
-                str(row.get("title", "") or ""),
-            ])
-            return sum(1 for t in rt if t in text)
-
-        df_all["_score"] = df_all.apply(score_reduced, axis=1)
-        df = df_all[df_all["_score"] > 0].sort_values("_score", ascending=False)
-
-    # 아티클/영상 혼합 선별
-    articles = df[df["type"] == "아티클"].reset_index(drop=True)
-    videos = df[df["type"] == "영상"].reset_index(drop=True)
-
+    # 라운드로빈으로 그룹 간 고르게 선별
     result = []
-    ai, vi = 0, 0
-    while len(result) < min_count and (ai < len(articles) or vi < len(videos)):
-        if ai < len(articles):
-            result.append(articles.iloc[ai].to_dict())
-            ai += 1
-        if vi < len(videos) and len(result) < min_count:
-            result.append(videos.iloc[vi].to_dict())
-            vi += 1
+    seen = set()
+    indices = [0] * len(group_candidates)
+
+    while len(result) < min_count:
+        added = False
+        for i, candidates in enumerate(group_candidates):
+            if len(result) >= min_count:
+                break
+            while indices[i] < len(candidates):
+                item = candidates[indices[i]]
+                indices[i] += 1
+                if item["title"] not in seen:
+                    result.append(item)
+                    seen.add(item["title"])
+                    added = True
+                    break
+        if not added:
+            break
+
+    # 부족하면 전체 풀에서 채움
+    if len(result) < min_count:
+        df_fill = df[~df["title"].isin(seen)]
+        for _, row in df_fill.iterrows():
+            if len(result) >= min_count:
+                break
+            result.append(row.to_dict())
 
     return result
 
