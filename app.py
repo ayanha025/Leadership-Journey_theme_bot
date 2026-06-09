@@ -221,7 +221,7 @@ def handle_regenerate_button(ack, body):
     channel = session.get("last_channel") or body["channel"]["id"]
     threading.Thread(
         target=_run_and_send,
-        kwargs={"channel": channel, "update_ts": session.get("last_ts")},
+        kwargs={"channel": channel},
     ).start()
 
 
