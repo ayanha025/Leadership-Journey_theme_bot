@@ -85,15 +85,7 @@ def _build_message_text(month, direction, keyword, titles, contents):
     return "\n".join(lines)
 
 
-def _build_blocks(text, titles=None):
-    all_titles = []
-    if titles:
-        all_titles = (
-            titles.get("youtube", []) +
-            titles.get("educational", []) +
-            titles.get("meme", []) +
-            titles.get("aggro", [])
-        )
+def _build_blocks(text):
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         {
@@ -109,7 +101,6 @@ def _build_blocks(text, titles=None):
                     "type": "button",
                     "text": {"type": "plain_text", "text": "✅ 이 테마로 확정"},
                     "action_id": "confirm_theme",
-                    "value": json.dumps(all_titles, ensure_ascii=False),
                 },
                 {
                     "type": "button",
@@ -186,7 +177,7 @@ def _run_and_send(channel=None, update_ts=None, keep_contents=False):
         month = datetime.now().month
         direction = get_direction(month)
         text = _build_message_text(month, direction, keyword, titles, contents)
-        blocks = _build_blocks(text, titles)
+        blocks = _build_blocks(text)
 
         if update_ts:
             app.client.chat_update(channel=dm_channel, ts=update_ts, text=text, blocks=blocks)
@@ -247,57 +238,16 @@ def handle_regenerate_button(ack, body):
 def handle_confirm(ack, body):
     ack()
     try:
-        all_titles = json.loads(body["actions"][0].get("value", "[]"))
-    except Exception:
-        all_titles = []
+        keyword = session["current"].get("keyword") or "확정"
+        contents = session["current"].get("contents", [])
 
-    options = [
-        {
-            "text": {"type": "plain_text", "text": f"{i + 1}. {t}"[:75]},
-            "value": t,
-        }
-        for i, t in enumerate(all_titles)
-    ]
-
-    channel = session.get("last_channel") or body["channel"]["id"]
-
-    if not options:
-        app.client.chat_postMessage(
-            channel=channel,
-            text=":warning: 확정할 제목이 없습니다. 테마를 다시 생성해주세요.",
-        )
-        return
-
-    app.client.chat_postMessage(
-        channel=channel,
-        text="확정할 제목을 선택해주세요.",
-        blocks=[
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": ":pencil: *확정할 제목을 선택해주세요.*"},
-                "accessory": {
-                    "type": "static_select",
-                    "placeholder": {"type": "plain_text", "text": "제목 선택"},
-                    "options": options,
-                    "action_id": "select_title",
-                },
-            }
-        ],
-    )
-
-
-@app.action("select_title")
-def handle_title_select(ack, body):
-    ack()
-    try:
-        selected_title = body["actions"][0]["selected_option"]["value"]
-        _save_confirmed_theme(selected_title)
-        _save_confirmed_contents(session["current"].get("contents", []))
+        _save_confirmed_theme(keyword)
+        _save_confirmed_contents(contents)
 
         channel = body["channel"]["id"]
         ts = body["message"]["ts"]
 
-        confirm_text = f":white_check_mark: 확정되었습니다.\n선정 테마 제목: *{selected_title}*"
+        confirm_text = f":white_check_mark: 확정되었습니다.\n테마 키워드: *{keyword}*"
         app.client.chat_update(
             channel=channel,
             ts=ts,
