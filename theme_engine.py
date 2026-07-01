@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import re
-import time
 from datetime import datetime
 from collections import Counter
 
@@ -105,7 +104,11 @@ def _get_content_keywords():
 
 
 class _QualityError(ValueError):
-    """모델 응답이 형식은 맞지만 품질 기준(키워드 반복·중복 제목 등)을 충족하지 못했을 때"""
+    """모델 응답이 형식은 맞지만 품질 기준(비정상 문자·키워드 반복·중복 제목 등)을 충족하지 못했을 때"""
+
+
+class _GarbledTitleError(_QualityError):
+    """생성된 제목에 한글/영문 외 비정상 문자(외국어 잔재, 코드 토큰 등)가 섞였을 때"""
 
 
 class _KeywordRepeatedError(_QualityError):
@@ -118,6 +121,29 @@ class _DuplicateTitleError(_QualityError):
 
 MAX_KEYWORD_REPEATS = 4  # 20개 제목 중 keyword 문자열을 그대로 포함해도 되는 최대 개수
 MAX_DUPLICATE_TITLES = 0  # 20개 제목 중 다른 제목과 완전히 동일해도 되는 최대 개수
+
+_GARBLED_CHARS = re.compile(
+    "["
+    "฀-๿"                             # 태국어
+    "一-鿿㐀-䶿豈-﫿"    # 한자
+    "぀-ヿ"                              # 일본어(히라가나/가타카나)
+    "Ḁ-ỿ"                              # 베트남어 확장 라틴
+    "Ѐ-ӿ"                              # 키릴
+    "؀-ۿ"                              # 아랍어
+    "ऀ-ॿ"                              # 데바나가리
+    "_"                                          # 코드 토큰(스네이크 케이스) 흔적
+    "]"
+)
+
+
+def _find_garbled_title(result):
+    """4개 스타일 제목 중 외국어 잔재·코드 토큰이 섞인 첫 번째 제목 반환 (없으면 None).
+    이모지 등은 허용 목록에 없어도 정상 제목이므로 차단 대상에서 제외."""
+    for key in ["youtube", "educational", "meme", "aggro"]:
+        for title in result.get(key, []):
+            if _GARBLED_CHARS.search(title):
+                return title
+    return None
 
 
 def _count_keyword_repeats(result):
@@ -154,12 +180,15 @@ def _call_openrouter(user_prompt):
     }
     models = ([OPENROUTER_MODEL] if OPENROUTER_MODEL else []) + FALLBACK_MODELS
     last_error = None
-    # 어떤 시도도 품질 기준(중복 없음·키워드 반복 적음)을 완전히 만족 못 해도
+    # 어떤 시도도 품질 기준(비정상 문자 없음·중복 없음·키워드 반복 적음)을 완전히 만족 못 해도
     # 구조적으로 유효한 응답이 하나라도 있으면 그중 가장 나은 것을 최후 수단으로 반환.
     # (품질 게이트 때문에 전체 실패로 이어져 슬랙 명령 자체가 죽는 것을 방지)
     fallback_result, fallback_score = None, None
     for model in models:
-        for attempt in range(2):  # 429 rate limit·품질 기준 미달(중복 제목/키워드 반복) 시 한 번 재시도
+        # 비정상 문자는 같은 모델에서도 우연히 재현 안 될 수 있어 1회 재시도 가치가 있지만,
+        # 키워드 반복·중복은 모델의 고질적인 습성이라 재시도해도 잘 안 고쳐짐 → 바로 다음 모델로 넘어가
+        # 응답 속도를 확보한다. 429도 대기 없이 바로 다음 모델로 넘어간다.
+        for attempt in range(2):  # 비정상 문자일 때만 실질적으로 재시도됨
             try:
                 body = {
                     "model": model,
@@ -168,18 +197,21 @@ def _call_openrouter(user_prompt):
                         {"role": "user", "content": user_prompt},
                     ],
                 }
-                resp = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=30)
+                resp = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=20)
                 resp.raise_for_status()
                 content = resp.json()["choices"][0]["message"]["content"]
                 result = _parse_response(content)
 
+                garbled = _find_garbled_title(result)
                 repeats = _count_keyword_repeats(result)
                 dupes = _count_duplicate_titles(result)
-                # 낮을수록 좋음. 중복 제목 > 키워드 반복 순으로 크게 감점
-                score = dupes * 100 + repeats
+                # 낮을수록 좋음. 비정상 문자 > 중복 제목 > 키워드 반복 순으로 크게 감점
+                score = (1000 if garbled else 0) + dupes * 100 + repeats
                 if fallback_result is None or score < fallback_score:
                     fallback_result, fallback_score = result, score
 
+                if garbled:
+                    raise _GarbledTitleError(f"비정상 문자 포함 제목: {garbled}")
                 if dupes > MAX_DUPLICATE_TITLES:
                     raise _DuplicateTitleError(f"중복 제목 {dupes}개 (허용 {MAX_DUPLICATE_TITLES}개)")
                 if repeats > MAX_KEYWORD_REPEATS:
@@ -196,18 +228,18 @@ def _call_openrouter(user_prompt):
                         body_text = e.response.json()
                     except Exception:
                         body_text = e.response.text[:300]
-                if e.response is not None and e.response.status_code == 429 and attempt == 0:
-                    logger.warning("모델 %s 요청 한도 초과, 20초 대기...", model)
-                    time.sleep(20)
-                    continue
                 logger.warning("모델 %s HTTP 오류 (%s) 응답: %s, 다음 모델 시도...", model, e, body_text)
+                break
+            except _GarbledTitleError as e:
+                last_error = e
+                if attempt == 0:
+                    logger.warning("모델 %s 응답에 비정상 문자 포함 (%s), 재시도...", model, e)
+                    continue
+                logger.warning("모델 %s 재시도에도 비정상 문자 포함, 다음 모델 시도...", model)
                 break
             except _QualityError as e:
                 last_error = e
-                if attempt == 0:
-                    logger.warning("모델 %s 응답이 품질 기준 미달 (%s), 재시도...", model, e)
-                    continue
-                logger.warning("모델 %s 재시도에도 품질 기준 미달, 다음 모델 시도...", model)
+                logger.warning("모델 %s 응답이 품질 기준 미달 (%s), 다음 모델 시도...", model, e)
                 break
             except Exception as e:
                 last_error = e
