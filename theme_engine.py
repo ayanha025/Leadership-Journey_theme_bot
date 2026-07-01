@@ -337,6 +337,14 @@ def _is_seasonal_mismatch(title: str, month: int) -> bool:
     return False
 
 
+EXCLUDED_TITLE_KEYWORDS = ["AI몬데이", "티키타카 한 판", "다시 쓰는 리력서", "리더십라디오", "2025 회고"]
+
+
+def _is_excluded_title(title: str) -> bool:
+    """제목에 EXCLUDED_TITLE_KEYWORDS 중 하나라도 포함되면 True (추천 대상에서 항상 제외)"""
+    return any(kw in title for kw in EXCLUDED_TITLE_KEYWORDS)
+
+
 def match_contents(keyword, min_count=5):
     """
     월별 기획 방향의 서브 그룹별로 콘텐츠를 스코어링하고
@@ -345,6 +353,7 @@ def match_contents(keyword, min_count=5):
     current_month = datetime.now().month
     df = pd.read_csv(CONTENT_CSV_PATH)
     df = df[~df["title"].apply(lambda t: _is_seasonal_mismatch(str(t), current_month))]
+    df = df[~df["title"].apply(lambda t: _is_excluded_title(str(t)))]
     used = _get_used_content_titles()
     if used:
         df = df[~df["title"].isin(used)]
@@ -358,6 +367,7 @@ def match_contents(keyword, min_count=5):
             "tags": [""] * len(scraped),
         })
         df = pd.concat([df, extras], ignore_index=True)
+        df = df[~df["title"].apply(lambda t: _is_excluded_title(str(t)))]
         if used:
             df = df[~df["title"].isin(used)]
 
