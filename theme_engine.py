@@ -105,11 +105,7 @@ def _get_content_keywords():
 
 
 class _QualityError(ValueError):
-    """모델 응답이 형식은 맞지만 품질 기준(비정상 문자·키워드 반복 등)을 충족하지 못했을 때"""
-
-
-class _GarbledTitleError(_QualityError):
-    """생성된 제목에 한글/영문 외 비정상 문자(외국어 잔재, 코드 토큰 등)가 섞였을 때"""
+    """모델 응답이 형식은 맞지만 품질 기준(키워드 반복·중복 제목 등)을 충족하지 못했을 때"""
 
 
 class _KeywordRepeatedError(_QualityError):
@@ -150,30 +146,6 @@ def _count_duplicate_titles(result):
     return dup_count
 
 
-_GARBLED_CHARS = re.compile(
-    "["
-    "฀-๿"          # 태국어
-    "一-鿿㐀-䶿豈-﫿"  # 한자
-    "぀-ヿ"          # 일본어(히라가나/가타카나)
-    "Ḁ-ỿ"          # 베트남어 확장 라틴
-    "Ѐ-ӿ"          # 키릴
-    "؀-ۿ"          # 아랍어
-    "ऀ-ॿ"          # 데바나가리
-    "_"                       # 코드 토큰(스네이크 케이스) 흔적
-    "]"
-)
-
-
-def _find_garbled_title(result):
-    """4개 스타일 제목 중 외국어 잔재·코드 토큰이 섞인 첫 번째 제목 반환 (없으면 None).
-    이모지 등은 허용 목록에 없어도 정상 제목이므로 차단 대상에서 제외."""
-    for key in ["youtube", "educational", "meme", "aggro"]:
-        for title in result.get(key, []):
-            if _GARBLED_CHARS.search(title):
-                return title
-    return None
-
-
 def _call_openrouter(user_prompt):
     """모델 목록을 순서대로 시도, HTTP 오류·JSON 파싱 실패 모두 다음 모델로 넘어감"""
     headers = {
@@ -182,12 +154,12 @@ def _call_openrouter(user_prompt):
     }
     models = ([OPENROUTER_MODEL] if OPENROUTER_MODEL else []) + FALLBACK_MODELS
     last_error = None
-    # 어떤 시도도 품질 기준(비정상 문자 없음·키워드 반복 적음)을 완전히 만족 못 해도
+    # 어떤 시도도 품질 기준(중복 없음·키워드 반복 적음)을 완전히 만족 못 해도
     # 구조적으로 유효한 응답이 하나라도 있으면 그중 가장 나은 것을 최후 수단으로 반환.
     # (품질 게이트 때문에 전체 실패로 이어져 슬랙 명령 자체가 죽는 것을 방지)
     fallback_result, fallback_score = None, None
     for model in models:
-        for attempt in range(2):  # 429 rate limit·품질 기준 미달(비정상 문자/키워드 반복) 시 한 번 재시도
+        for attempt in range(2):  # 429 rate limit·품질 기준 미달(중복 제목/키워드 반복) 시 한 번 재시도
             try:
                 body = {
                     "model": model,
@@ -201,16 +173,13 @@ def _call_openrouter(user_prompt):
                 content = resp.json()["choices"][0]["message"]["content"]
                 result = _parse_response(content)
 
-                garbled = _find_garbled_title(result)
                 repeats = _count_keyword_repeats(result)
                 dupes = _count_duplicate_titles(result)
-                # 낮을수록 좋음. 비정상 문자 > 중복 제목 > 키워드 반복 순으로 크게 감점
-                score = (1000 if garbled else 0) + dupes * 100 + repeats
+                # 낮을수록 좋음. 중복 제목 > 키워드 반복 순으로 크게 감점
+                score = dupes * 100 + repeats
                 if fallback_result is None or score < fallback_score:
                     fallback_result, fallback_score = result, score
 
-                if garbled:
-                    raise _GarbledTitleError(f"비정상 문자 포함 제목: {garbled}")
                 if dupes > MAX_DUPLICATE_TITLES:
                     raise _DuplicateTitleError(f"중복 제목 {dupes}개 (허용 {MAX_DUPLICATE_TITLES}개)")
                 if repeats > MAX_KEYWORD_REPEATS:
