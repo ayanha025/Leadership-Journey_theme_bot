@@ -270,6 +270,21 @@ def _extract_first_json_object(text):
     return None
 
 
+_EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F1E6-\U0001F1FF"  # 국기(지역 표시자)
+    "\U0001F300-\U0001FAFF"  # 이모티콘·기호·교통·부속 기호
+    "☀-➿"          # 기타 기호 및 딩뱃
+    "️"                 # variation selector
+    "‍"                 # ZWJ (이모지 조합)
+    "]+"
+)
+
+
+def _strip_emoji(text):
+    return _EMOJI_PATTERN.sub("", text).strip()
+
+
 def _parse_response(text):
     """JSON 블록 추출 및 키 검증"""
     clean = re.sub(r"```json|```", "", text).strip()
@@ -283,6 +298,7 @@ def _parse_response(text):
     for key in ["youtube", "educational", "meme", "aggro"]:
         if not isinstance(result[key], list) or len(result[key]) < 5:
             raise ValueError(f"{key} 항목이 5개 미만입니다")
+        result[key] = [_strip_emoji(str(title)) for title in result[key]]
     return result
 
 
