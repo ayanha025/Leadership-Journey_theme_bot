@@ -108,16 +108,26 @@ class _GarbledTitleError(ValueError):
     """생성된 제목에 한글/영문 외 비정상 문자(외국어 잔재, 코드 토큰 등)가 섞였을 때"""
 
 
-_ALLOWED_TITLE_CHARS = re.compile(
-    r"^[가-힣ㄱ-ㅎㅏ-ㅣa-zA-Z0-9\s\.\,\!\?\~\:\;\'\"“”‘’\(\)\[\]\%\&\/\-\·\+…]*$"
+_GARBLED_CHARS = re.compile(
+    "["
+    "฀-๿"          # 태국어
+    "一-鿿㐀-䶿豈-﫿"  # 한자
+    "぀-ヿ"          # 일본어(히라가나/가타카나)
+    "Ḁ-ỿ"          # 베트남어 확장 라틴
+    "Ѐ-ӿ"          # 키릴
+    "؀-ۿ"          # 아랍어
+    "ऀ-ॿ"          # 데바나가리
+    "_"                       # 코드 토큰(스네이크 케이스) 흔적
+    "]"
 )
 
 
 def _find_garbled_title(result):
-    """4개 스타일 제목 중 허용 문자 범위를 벗어난 첫 번째 제목 반환 (없으면 None)"""
+    """4개 스타일 제목 중 외국어 잔재·코드 토큰이 섞인 첫 번째 제목 반환 (없으면 None).
+    이모지 등은 허용 목록에 없어도 정상 제목이므로 차단 대상에서 제외."""
     for key in ["youtube", "educational", "meme", "aggro"]:
         for title in result.get(key, []):
-            if not _ALLOWED_TITLE_CHARS.match(title):
+            if _GARBLED_CHARS.search(title):
                 return title
     return None
 
