@@ -104,8 +104,32 @@ def _get_content_keywords():
     return " ".join(top)
 
 
-class _GarbledTitleError(ValueError):
+class _QualityError(ValueError):
+    """모델 응답이 형식은 맞지만 품질 기준(비정상 문자·키워드 반복 등)을 충족하지 못했을 때"""
+
+
+class _GarbledTitleError(_QualityError):
     """생성된 제목에 한글/영문 외 비정상 문자(외국어 잔재, 코드 토큰 등)가 섞였을 때"""
+
+
+class _KeywordRepeatedError(_QualityError):
+    """제목 대다수가 keyword 단어를 그대로 반복해서 다양성이 없을 때"""
+
+
+MAX_KEYWORD_REPEATS = 4  # 20개 제목 중 keyword 문자열을 그대로 포함해도 되는 최대 개수
+
+
+def _count_keyword_repeats(result):
+    """20개 제목 중 keyword 문자열을 그대로 포함한 제목 수"""
+    keyword = result.get("keyword", "")
+    if not keyword:
+        return 0
+    return sum(
+        1
+        for key in ["youtube", "educational", "meme", "aggro"]
+        for title in result.get(key, [])
+        if keyword in title
+    )
 
 
 _GARBLED_CHARS = re.compile(
@@ -140,8 +164,12 @@ def _call_openrouter(user_prompt):
     }
     models = ([OPENROUTER_MODEL] if OPENROUTER_MODEL else []) + FALLBACK_MODELS
     last_error = None
+    # 어떤 시도도 품질 기준(비정상 문자 없음·키워드 반복 적음)을 완전히 만족 못 해도
+    # 구조적으로 유효한 응답이 하나라도 있으면 그중 가장 나은 것을 최후 수단으로 반환.
+    # (품질 게이트 때문에 전체 실패로 이어져 슬랙 명령 자체가 죽는 것을 방지)
+    fallback_result, fallback_score = None, None
     for model in models:
-        for attempt in range(2):  # 429 rate limit·비정상 문자 발생 시 한 번 재시도
+        for attempt in range(2):  # 429 rate limit·품질 기준 미달(비정상 문자/키워드 반복) 시 한 번 재시도
             try:
                 body = {
                     "model": model,
@@ -154,9 +182,19 @@ def _call_openrouter(user_prompt):
                 resp.raise_for_status()
                 content = resp.json()["choices"][0]["message"]["content"]
                 result = _parse_response(content)
+
                 garbled = _find_garbled_title(result)
+                repeats = _count_keyword_repeats(result)
+                score = (1000 if garbled else 0) + repeats  # 낮을수록 좋음, 비정상 문자를 더 크게 감점
+                if fallback_result is None or score < fallback_score:
+                    fallback_result, fallback_score = result, score
+
                 if garbled:
                     raise _GarbledTitleError(f"비정상 문자 포함 제목: {garbled}")
+                if repeats > MAX_KEYWORD_REPEATS:
+                    raise _KeywordRepeatedError(
+                        f"키워드 '{result.get('keyword')}' 반복 {repeats}회 (허용 {MAX_KEYWORD_REPEATS}회)"
+                    )
                 logger.info("OpenRouter 모델 사용: %s", model)
                 return result
             except requests.exceptions.HTTPError as e:
@@ -173,17 +211,23 @@ def _call_openrouter(user_prompt):
                     continue
                 logger.warning("모델 %s HTTP 오류 (%s) 응답: %s, 다음 모델 시도...", model, e, body_text)
                 break
-            except _GarbledTitleError as e:
+            except _QualityError as e:
                 last_error = e
                 if attempt == 0:
-                    logger.warning("모델 %s 응답에 비정상 문자 포함 (%s), 재시도...", model, e)
+                    logger.warning("모델 %s 응답이 품질 기준 미달 (%s), 재시도...", model, e)
                     continue
-                logger.warning("모델 %s 재시도에도 비정상 문자 포함, 다음 모델 시도...", model)
+                logger.warning("모델 %s 재시도에도 품질 기준 미달, 다음 모델 시도...", model)
                 break
             except Exception as e:
                 last_error = e
                 logger.warning("모델 %s 실패 (%s), 다음 모델 시도...", model, e)
                 break
+    if fallback_result is not None:
+        logger.warning(
+            "모든 모델이 품질 기준을 완전히 충족하지 못해 최선의 결과 사용 (score=%s, %s)",
+            fallback_score, last_error,
+        )
+        return fallback_result
     raise RuntimeError(f"모든 모델 실패: {last_error}")
 
 
