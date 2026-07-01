@@ -20,10 +20,10 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "")
 FALLBACK_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct",
-    "qwen/qwen-2.5-7b-instruct",
-    "mistralai/mistral-nemo",
-    "google/gemma-3-27b-it",
+    "meta-llama/llama-3.3-70b-instruct",  # 70B
+    "google/gemma-3-27b-it",              # 27B
+    "mistralai/mistral-nemo",             # 12B
+    "qwen/qwen-2.5-7b-instruct",          # 7B - 가장 약함, 최후 수단
 ]
 CONTENT_CSV_PATH = os.getenv("CONTENT_CSV_PATH", "data/contents.csv")
 SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
