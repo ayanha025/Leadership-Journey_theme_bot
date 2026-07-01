@@ -43,6 +43,9 @@ SYSTEM_PROMPT = """당신은 리더십 교육 콘텐츠 큐레이터입니다.
 - keyword: 월별 기획 방향에서 선정한 핵심 주제 키워드 (10자 이내)
 - 각 스타일별 5개, 총 20개 제목 생성
 - 각 제목은 20자 이내
+- 제목에 keyword 단어 자체를 그대로 반복해서 쓰지 말 것. 대신 그 키워드의 원인, 증상, 예방법, 회복 전략, 관련 감정·행동, 조직 차원의 대응 등 서로 다른 하위 주제로 폭넓게 표현할 것
+  (예: keyword가 "번아웃"이면 "번아웃"이라는 단어 없이 "퇴근해도 꺼지지 않는 알림", "오늘도 방전된 채 출근", "쉬어도 쉰 것 같지 않다면" 처럼 연관 주제로 작성)
+- 20개 제목이 비슷한 문장 패턴("~하는 법", "~을 예방하려면" 등)으로 몰리지 않도록 각기 다른 소재·각도·표현 방식을 사용할 것
 - 금지 목록의 키워드와 주제가 중복되지 않도록 할 것
 - 반드시 아래 JSON 형식만 출력 (설명 없이)
 
@@ -101,6 +104,24 @@ def _get_content_keywords():
     return " ".join(top)
 
 
+class _GarbledTitleError(ValueError):
+    """생성된 제목에 한글/영문 외 비정상 문자(외국어 잔재, 코드 토큰 등)가 섞였을 때"""
+
+
+_ALLOWED_TITLE_CHARS = re.compile(
+    r"^[가-힣ㄱ-ㅎㅏ-ㅣa-zA-Z0-9\s\.\,\!\?\~\:\;\'\"“”‘’\(\)\[\]\%\&\/\-\·\+…]*$"
+)
+
+
+def _find_garbled_title(result):
+    """4개 스타일 제목 중 허용 문자 범위를 벗어난 첫 번째 제목 반환 (없으면 None)"""
+    for key in ["youtube", "educational", "meme", "aggro"]:
+        for title in result.get(key, []):
+            if not _ALLOWED_TITLE_CHARS.match(title):
+                return title
+    return None
+
+
 def _call_openrouter(user_prompt):
     """모델 목록을 순서대로 시도, HTTP 오류·JSON 파싱 실패 모두 다음 모델로 넘어감"""
     headers = {
@@ -110,7 +131,7 @@ def _call_openrouter(user_prompt):
     models = ([OPENROUTER_MODEL] if OPENROUTER_MODEL else []) + FALLBACK_MODELS
     last_error = None
     for model in models:
-        for attempt in range(2):  # 429 rate limit일 때만 한 번 재시도
+        for attempt in range(2):  # 429 rate limit·비정상 문자 발생 시 한 번 재시도
             try:
                 body = {
                     "model": model,
@@ -123,6 +144,9 @@ def _call_openrouter(user_prompt):
                 resp.raise_for_status()
                 content = resp.json()["choices"][0]["message"]["content"]
                 result = _parse_response(content)
+                garbled = _find_garbled_title(result)
+                if garbled:
+                    raise _GarbledTitleError(f"비정상 문자 포함 제목: {garbled}")
                 logger.info("OpenRouter 모델 사용: %s", model)
                 return result
             except requests.exceptions.HTTPError as e:
@@ -138,6 +162,13 @@ def _call_openrouter(user_prompt):
                     time.sleep(20)
                     continue
                 logger.warning("모델 %s HTTP 오류 (%s) 응답: %s, 다음 모델 시도...", model, e, body_text)
+                break
+            except _GarbledTitleError as e:
+                last_error = e
+                if attempt == 0:
+                    logger.warning("모델 %s 응답에 비정상 문자 포함 (%s), 재시도...", model, e)
+                    continue
+                logger.warning("모델 %s 재시도에도 비정상 문자 포함, 다음 모델 시도...", model)
                 break
             except Exception as e:
                 last_error = e
