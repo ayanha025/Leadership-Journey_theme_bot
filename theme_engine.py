@@ -36,15 +36,15 @@ MONTHLY_DIRECTION_PATH = os.getenv("MONTHLY_DIRECTION_PATH", "data/monthly_direc
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 SYSTEM_PROMPT = """당신은 리더십 교육 콘텐츠 큐레이터입니다.
-주어진 월별 기획 방향에서 핵심 키워드 하나를 선정하고,
+주어진 월별 기획 방향에서 핵심 주제와 지향점을 함께 담은 키워드를 선정하고,
 그 키워드를 주제로 4가지 스타일별 5개씩 총 20개 제목을 생성합니다.
 
 규칙:
-- keyword: 월별 기획 방향에서 선정한 핵심 주제 키워드 (10자 이내)
+- keyword: 월별 기획 방향의 핵심 주제 키워드. 방향 문구에 지향점 수식어(예방, 회복, 전략, 구축, 강화 등)가 있다면 반드시 keyword에 포함할 것 (예: "번아웃 예방", "팀 신뢰 구축"). (15자 이내)
 - 각 스타일별 5개, 총 20개 제목 생성
 - 각 제목은 20자 이내
-- 제목에 keyword 단어 자체를 그대로 반복해서 쓰지 말 것. 대신 그 키워드의 원인, 증상, 예방법, 회복 전략, 관련 감정·행동, 조직 차원의 대응 등 서로 다른 하위 주제로 폭넓게 표현할 것
-  (예: keyword가 "번아웃"이면 "번아웃"이라는 단어 없이 "퇴근해도 꺼지지 않는 알림", "오늘도 방전된 채 출근", "쉬어도 쉰 것 같지 않다면" 처럼 연관 주제로 작성)
+- 제목에 keyword 전체, 지향점 수식어를 뺀 핵심 명사(예: keyword가 "번아웃 예방"이면 "번아웃"), 지향점 수식어 자체(예: "예방") 이 세 가지 모두 그대로 반복해서 쓰지 말 것. 지향점은 단어 그대로 노출하지 말고 다른 표현(예: "미리 챙기다", "무너지기 전에", "지켜내는 법")으로 녹여서, 원인, 증상, 회복 전략, 관련 감정·행동, 조직 차원의 대응 등 서로 다른 하위 주제로 폭넓게 표현하되 모든 제목이 결국 그 지향점으로 수렴하도록 할 것. 문제 상황이나 감정을 나열하는 데서 그치지 말고, 증상을 언급하더라도 그 신호가 왜 중요한지·어떻게 대응해야 하는지로 연결할 것
+  (예: keyword가 "번아웃 예방"이면 "번아웃"이라는 단어 없이 "퇴근해도 꺼지지 않는 알림, 방치하면 위험한 신호", "쉬어도 쉰 것 같지 않다면 지금 필요한 습관" 처럼 증상을 예방·회복 쪽으로 연결해 작성)
 - 20개 제목이 비슷한 문장 패턴("~하는 법", "~을 예방하려면" 등)으로 몰리지 않도록 각기 다른 소재·각도·표현 방식을 사용할 것
 - 금지 목록의 키워드와 주제가 중복되지 않도록 할 것
 - 반드시 아래 JSON 형식만 출력 (설명 없이)
@@ -147,16 +147,40 @@ def _find_garbled_title(result):
     return None
 
 
+ORIENTATION_MODIFIERS = ["예방", "회복", "전략", "구축", "강화"]
+
+
+def _split_keyword(keyword):
+    """keyword를 (지향점 수식어를 뗀 핵심 명사, 수식어)로 분리.
+    수식어가 없으면 (keyword, None). 예: "번아웃 예방" -> ("번아웃", "예방")"""
+    for mod in ORIENTATION_MODIFIERS:
+        if keyword.endswith(mod):
+            core = keyword[: -len(mod)].strip()
+            return (core or keyword), mod
+        if keyword.startswith(mod):
+            core = keyword[len(mod):].strip()
+            return (core or keyword), mod
+    return keyword, None
+
+
+def _core_keyword(keyword):
+    return _split_keyword(keyword)[0]
+
+
 def _count_keyword_repeats(result):
-    """20개 제목 중 keyword 문자열을 그대로 포함한 제목 수"""
+    """20개 제목 중 keyword의 핵심 명사 또는 지향점 수식어를 그대로 포함한 제목 수.
+    "번아웃"/"예방"/"번아웃 예방" 중 하나라도 들어 있으면 1건으로 세어(중복 집계 방지),
+    노출된 제목 총량을 기준으로 반복 여부를 판단한다."""
     keyword = result.get("keyword", "")
     if not keyword:
         return 0
+    core, modifier = _split_keyword(keyword)
+    banned_terms = [core] + ([modifier] if modifier else [])
     return sum(
         1
         for key in ["youtube", "educational", "meme", "aggro"]
         for title in result.get(key, [])
-        if keyword in title
+        if any(term in title for term in banned_terms)
     )
 
 
