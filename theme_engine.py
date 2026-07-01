@@ -1,6 +1,7 @@
 """
 OpenRouter API로 테마 키워드 + 제목 20개 생성, 콘텐츠 풀에서 관련 항목 선별
 """
+import concurrent.futures
 import json
 import logging
 import os
@@ -18,11 +19,11 @@ load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "")
-FALLBACK_MODELS = [
+# 품질 상위 3개 모델만 동시(병렬) 호출. mistral-nemo·qwen-7b는 지시 이행력이
+# 크게 떨어져(키워드 반복 등) 병렬 후보에서 제외.
+PARALLEL_MODELS = [
     "meta-llama/llama-3.3-70b-instruct",  # 70B
     "google/gemma-3-27b-it",              # 27B
-    "mistralai/mistral-nemo",             # 12B
-    "qwen/qwen-2.5-7b-instruct",          # 7B - 가장 약함, 최후 수단
 ]
 CONTENT_CSV_PATH = os.getenv("CONTENT_CSV_PATH", "data/contents.csv")
 SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
@@ -172,83 +173,87 @@ def _count_duplicate_titles(result):
     return dup_count
 
 
+def _request_model(model, user_prompt, headers):
+    """모델 1곳에 1회 요청 + 파싱 + 품질 점수 계산. 성공하면 (result, score), 실패하면 (None, error) 반환"""
+    try:
+        body = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        resp = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=20)
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+        result = _parse_response(content)
+
+        garbled = _find_garbled_title(result)
+        repeats = _count_keyword_repeats(result)
+        dupes = _count_duplicate_titles(result)
+        # 낮을수록 좋음. 비정상 문자 > 중복 제목 > 키워드 반복 순으로 크게 감점
+        score = (1000 if garbled else 0) + dupes * 100 + repeats
+        return result, score
+    except requests.exceptions.HTTPError as e:
+        body_text = ""
+        if e.response is not None:
+            try:
+                body_text = e.response.json()
+            except Exception:
+                body_text = e.response.text[:300]
+        logger.warning("모델 %s HTTP 오류 (%s) 응답: %s", model, e, body_text)
+        return None, e
+    except Exception as e:
+        logger.warning("모델 %s 실패 (%s)", model, e)
+        return None, e
+
+
 def _call_openrouter(user_prompt):
-    """모델 목록을 순서대로 시도, HTTP 오류·JSON 파싱 실패 모두 다음 모델로 넘어감"""
+    """품질 상위 모델들을 동시에(병렬) 호출해 순차 대기 시간을 없애고,
+    우선순위(품질) 순으로 완전히 품질 기준을 통과한 첫 결과를 채택한다.
+    어떤 응답도 기준을 완전히 만족 못 해도, 구조적으로 유효한 응답 중 가장 나은 것을
+    최후 수단으로 반환해 품질 게이트 때문에 슬랙 명령 자체가 죽는 것을 방지한다."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
     }
-    models = ([OPENROUTER_MODEL] if OPENROUTER_MODEL else []) + FALLBACK_MODELS
+    models = ([OPENROUTER_MODEL] if OPENROUTER_MODEL else []) + PARALLEL_MODELS
     last_error = None
-    # 어떤 시도도 품질 기준(비정상 문자 없음·중복 없음·키워드 반복 적음)을 완전히 만족 못 해도
-    # 구조적으로 유효한 응답이 하나라도 있으면 그중 가장 나은 것을 최후 수단으로 반환.
-    # (품질 게이트 때문에 전체 실패로 이어져 슬랙 명령 자체가 죽는 것을 방지)
-    fallback_result, fallback_score = None, None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(models)) as executor:
+        future_to_model = {
+            executor.submit(_request_model, model, user_prompt, headers): model
+            for model in models
+        }
+        outcomes = {}
+        for future in concurrent.futures.as_completed(future_to_model):
+            model = future_to_model[future]
+            result, score_or_error = future.result()
+            if result is None:
+                last_error = score_or_error
+                continue
+            outcomes[model] = (result, score_or_error)
+            logger.info("모델 %s 응답 수신 (score=%s)", model, score_or_error)
+
+    # 우선순위(모델 목록 순서) 상 완전히 품질 기준을 통과한(score=0) 첫 결과를 채택
     for model in models:
-        # 비정상 문자는 같은 모델에서도 우연히 재현 안 될 수 있어 1회 재시도 가치가 있지만,
-        # 키워드 반복·중복은 모델의 고질적인 습성이라 재시도해도 잘 안 고쳐짐 → 바로 다음 모델로 넘어가
-        # 응답 속도를 확보한다. 429도 대기 없이 바로 다음 모델로 넘어간다.
-        for attempt in range(2):  # 비정상 문자일 때만 실질적으로 재시도됨
-            try:
-                body = {
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                }
-                resp = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=20)
-                resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"]["content"]
-                result = _parse_response(content)
-
-                garbled = _find_garbled_title(result)
-                repeats = _count_keyword_repeats(result)
-                dupes = _count_duplicate_titles(result)
-                # 낮을수록 좋음. 비정상 문자 > 중복 제목 > 키워드 반복 순으로 크게 감점
-                score = (1000 if garbled else 0) + dupes * 100 + repeats
-                if fallback_result is None or score < fallback_score:
-                    fallback_result, fallback_score = result, score
-
-                if garbled:
-                    raise _GarbledTitleError(f"비정상 문자 포함 제목: {garbled}")
-                if dupes > MAX_DUPLICATE_TITLES:
-                    raise _DuplicateTitleError(f"중복 제목 {dupes}개 (허용 {MAX_DUPLICATE_TITLES}개)")
-                if repeats > MAX_KEYWORD_REPEATS:
-                    raise _KeywordRepeatedError(
-                        f"키워드 '{result.get('keyword')}' 반복 {repeats}회 (허용 {MAX_KEYWORD_REPEATS}회)"
-                    )
+        if model in outcomes:
+            result, score = outcomes[model]
+            if score == 0:
                 logger.info("OpenRouter 모델 사용: %s", model)
                 return result
-            except requests.exceptions.HTTPError as e:
-                last_error = e
-                body_text = ""
-                if e.response is not None:
-                    try:
-                        body_text = e.response.json()
-                    except Exception:
-                        body_text = e.response.text[:300]
-                logger.warning("모델 %s HTTP 오류 (%s) 응답: %s, 다음 모델 시도...", model, e, body_text)
-                break
-            except _GarbledTitleError as e:
-                last_error = e
-                if attempt == 0:
-                    logger.warning("모델 %s 응답에 비정상 문자 포함 (%s), 재시도...", model, e)
-                    continue
-                logger.warning("모델 %s 재시도에도 비정상 문자 포함, 다음 모델 시도...", model)
-                break
-            except _QualityError as e:
-                last_error = e
-                logger.warning("모델 %s 응답이 품질 기준 미달 (%s), 다음 모델 시도...", model, e)
-                break
-            except Exception as e:
-                last_error = e
-                logger.warning("모델 %s 실패 (%s), 다음 모델 시도...", model, e)
-                break
+
+    # 완전히 통과한 게 없으면 그중 점수가 가장 좋은 것을 최후 수단으로 사용
+    fallback_result, fallback_score = None, None
+    for model in models:
+        if model in outcomes:
+            result, score = outcomes[model]
+            if fallback_result is None or score < fallback_score:
+                fallback_result, fallback_score = result, score
     if fallback_result is not None:
         logger.warning(
-            "모든 모델이 품질 기준을 완전히 충족하지 못해 최선의 결과 사용 (score=%s, %s)",
-            fallback_score, last_error,
+            "병렬 호출한 모델 모두 품질 기준을 완전히 충족하지 못해 최선의 결과 사용 (score=%s)",
+            fallback_score,
         )
         return fallback_result
     raise RuntimeError(f"모든 모델 실패: {last_error}")
