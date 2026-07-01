@@ -1,6 +1,7 @@
 """
 리더십저니 테마 자동화 Slack Bolt 앱
 """
+import concurrent.futures
 import json
 import logging
 import os
@@ -162,9 +163,18 @@ def _run_and_send(channel=None, update_ts=None, keep_contents=False):
     try:
         if not dm_channel:
             dm_channel = _get_dm_channel()
-        scrape_warnings = run_scraping() if not keep_contents else []
 
-        result = generate_theme(extra_forbidden=session["suggested_keywords"])
+        if keep_contents:
+            scrape_warnings = []
+            result = generate_theme(extra_forbidden=session["suggested_keywords"])
+        else:
+            # 스크래핑과 테마 생성은 서로 결과를 필요로 하지 않는 독립적인 네트워크 호출이라
+            # 병렬로 돌려서 대기 시간을 겹치게(overlap) 한다.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                scrape_future = executor.submit(run_scraping)
+                theme_future = executor.submit(generate_theme, extra_forbidden=session["suggested_keywords"])
+                scrape_warnings = scrape_future.result()
+                result = theme_future.result()
         keyword = result["keyword"]
         logger.info("생성된 테마 키워드: %s", keyword)
         titles = {k: result[k] for k in ["youtube", "educational", "meme", "aggro"]}

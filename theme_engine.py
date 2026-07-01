@@ -234,7 +234,9 @@ def _request_model(model, user_prompt, headers):
 
 def _call_openrouter(user_prompt):
     """품질 상위 모델들을 동시에(병렬) 호출해 순차 대기 시간을 없애고,
-    우선순위(품질) 순으로 완전히 품질 기준을 통과한 첫 결과를 채택한다.
+    품질 기준을 완전히 통과한(score=0) 결과가 나오는 즉시 채택한다(조기 종료).
+    아직 응답하지 않은 나머지 모델은 기다리지 않아, 느린 모델 하나 때문에
+    이미 확보한 좋은 응답까지 지연되는 것을 방지한다.
     어떤 응답도 기준을 완전히 만족 못 해도, 구조적으로 유효한 응답 중 가장 나은 것을
     최후 수단으로 반환해 품질 게이트 때문에 슬랙 명령 자체가 죽는 것을 방지한다."""
     headers = {
@@ -243,13 +245,14 @@ def _call_openrouter(user_prompt):
     }
     models = ([OPENROUTER_MODEL] if OPENROUTER_MODEL else []) + PARALLEL_MODELS
     last_error = None
+    outcomes = {}
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(models)) as executor:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(models))
+    try:
         future_to_model = {
             executor.submit(_request_model, model, user_prompt, headers): model
             for model in models
         }
-        outcomes = {}
         for future in concurrent.futures.as_completed(future_to_model):
             model = future_to_model[future]
             result, score_or_error = future.result()
@@ -258,14 +261,11 @@ def _call_openrouter(user_prompt):
                 continue
             outcomes[model] = (result, score_or_error)
             logger.info("모델 %s 응답 수신 (score=%s)", model, score_or_error)
-
-    # 우선순위(모델 목록 순서) 상 완전히 품질 기준을 통과한(score=0) 첫 결과를 채택
-    for model in models:
-        if model in outcomes:
-            result, score = outcomes[model]
-            if score == 0:
-                logger.info("OpenRouter 모델 사용: %s", model)
+            if score_or_error == 0:
+                logger.info("OpenRouter 모델 사용(조기 채택): %s", model)
                 return result
+    finally:
+        executor.shutdown(wait=False)
 
     # 완전히 통과한 게 없으면 그중 점수가 가장 좋은 것을 최후 수단으로 사용
     fallback_result, fallback_score = None, None
