@@ -116,7 +116,12 @@ class _KeywordRepeatedError(_QualityError):
     """제목 대다수가 keyword 단어를 그대로 반복해서 다양성이 없을 때"""
 
 
+class _DuplicateTitleError(_QualityError):
+    """20개 제목 중 완전히 동일한 제목이 중복 등장할 때"""
+
+
 MAX_KEYWORD_REPEATS = 4  # 20개 제목 중 keyword 문자열을 그대로 포함해도 되는 최대 개수
+MAX_DUPLICATE_TITLES = 0  # 20개 제목 중 다른 제목과 완전히 동일해도 되는 최대 개수
 
 
 def _count_keyword_repeats(result):
@@ -130,6 +135,19 @@ def _count_keyword_repeats(result):
         for title in result.get(key, [])
         if keyword in title
     )
+
+
+def _count_duplicate_titles(result):
+    """20개 제목 중 앞서 나온 제목과 완전히 동일하게 중복되는 제목 수"""
+    seen = set()
+    dup_count = 0
+    for key in ["youtube", "educational", "meme", "aggro"]:
+        for title in result.get(key, []):
+            if title in seen:
+                dup_count += 1
+            else:
+                seen.add(title)
+    return dup_count
 
 
 _GARBLED_CHARS = re.compile(
@@ -185,12 +203,16 @@ def _call_openrouter(user_prompt):
 
                 garbled = _find_garbled_title(result)
                 repeats = _count_keyword_repeats(result)
-                score = (1000 if garbled else 0) + repeats  # 낮을수록 좋음, 비정상 문자를 더 크게 감점
+                dupes = _count_duplicate_titles(result)
+                # 낮을수록 좋음. 비정상 문자 > 중복 제목 > 키워드 반복 순으로 크게 감점
+                score = (1000 if garbled else 0) + dupes * 100 + repeats
                 if fallback_result is None or score < fallback_score:
                     fallback_result, fallback_score = result, score
 
                 if garbled:
                     raise _GarbledTitleError(f"비정상 문자 포함 제목: {garbled}")
+                if dupes > MAX_DUPLICATE_TITLES:
+                    raise _DuplicateTitleError(f"중복 제목 {dupes}개 (허용 {MAX_DUPLICATE_TITLES}개)")
                 if repeats > MAX_KEYWORD_REPEATS:
                     raise _KeywordRepeatedError(
                         f"키워드 '{result.get('keyword')}' 반복 {repeats}회 (허용 {MAX_KEYWORD_REPEATS}회)"
