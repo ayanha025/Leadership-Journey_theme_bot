@@ -7,7 +7,9 @@ import logging
 import os
 import signal
 import threading
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from slack_bolt import App
@@ -21,6 +23,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 LOCK_FILE = "/tmp/leadership_journey_bot.pid"
+
+KST = ZoneInfo("Asia/Seoul")
+SCRAPE_HOUR_KST = int(os.getenv("SCRAPE_HOUR_KST", "6"))
 
 def _ensure_single_instance():
     current_pid = os.getpid()
@@ -211,6 +216,32 @@ def _run_and_send(channel=None, update_ts=None, keep_contents=False):
             )
 
 
+# ── 정기 수집 ────────────────────────────────────────────────────────────────
+
+def _seconds_until_next_scrape(now=None):
+    now = now or datetime.now(KST)
+    target = now.replace(hour=SCRAPE_HOUR_KST, minute=0, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
+
+
+def _scrape_scheduler():
+    """
+    목록 페이지는 최신 12개만 노출하고 콘텐츠는 평일마다 2개씩 올라온다.
+    봇 호출 시점에만 수집하면 그 사이 밀려난 콘텐츠를 영영 못 줍기 때문에
+    호출과 무관하게 매일 한 번 수집해 누적한다.
+    """
+    while True:
+        time.sleep(_seconds_until_next_scrape())
+        try:
+            warnings = run_scraping()
+            for w in warnings:
+                logger.warning("정기 수집 경고: %s", w)
+        except Exception as e:
+            logger.error("정기 수집 실패: %s", e, exc_info=True)
+
+
 # ── 이벤트 핸들러 ────────────────────────────────────────────────────────────
 
 @app.message("테마기획")
@@ -302,5 +333,10 @@ if __name__ == "__main__":
     logger.info("리더십저니 Slack 앱 시작 (PID: %s)", os.getpid())
     app_token = os.environ["SLACK_APP_TOKEN"]
     logger.info("App Token 앞 10자: %s...", app_token[:10])
+
+    threading.Thread(target=_scrape_scheduler, daemon=True).start()
+    next_run = datetime.now(KST) + timedelta(seconds=_seconds_until_next_scrape())
+    logger.info("정기 수집 예약: 매일 %02d:00 KST (다음 %s)", SCRAPE_HOUR_KST, next_run.strftime("%m-%d %H:%M"))
+
     handler = SocketModeHandler(app, app_token)
     handler.start()
