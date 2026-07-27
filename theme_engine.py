@@ -13,9 +13,17 @@ logger = logging.getLogger(__name__)
 
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+from storage import (
+    CONTENT_CSV_PATH,
+    SCRAPED_CONTENTS_PATH,
+    THEME_HISTORY_PATH,
+    THEME_HISTORY_SEED_PATH,
+    CONTENT_HISTORY_PATH,
+    CONTENT_HISTORY_SEED_PATH,
+    MONTHLY_DIRECTION_PATH,
+    load_json as _load_json,
+)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "")
@@ -25,17 +33,6 @@ PARALLEL_MODELS = [
     "meta-llama/llama-3.3-70b-instruct",  # 70B
     "google/gemma-3-27b-it",              # 27B
 ]
-# 가변 상태(수집·확정 이력)는 재배포에도 살아남아야 하므로 STORAGE_DIR 한 곳에 모은다.
-# 로컬은 기본값 storage/, Railway는 볼륨 마운트 경로(예: /data)를 STORAGE_DIR로 지정.
-# seed/csv 등 읽기 전용 리소스는 리포에 그대로 두고 data/ 에서 읽는다.
-STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
-CONTENT_CSV_PATH = os.getenv("CONTENT_CSV_PATH", "data/contents.csv")
-SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH") or os.path.join(STORAGE_DIR, "scraped_contents.json")
-THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH") or os.path.join(STORAGE_DIR, "theme_history.json")
-THEME_HISTORY_SEED_PATH = os.getenv("THEME_HISTORY_SEED_PATH", "data/theme_history_seed.json")
-CONTENT_HISTORY_PATH = os.getenv("CONTENT_HISTORY_PATH") or os.path.join(STORAGE_DIR, "content_history.json")
-CONTENT_HISTORY_SEED_PATH = os.getenv("CONTENT_HISTORY_SEED_PATH", "data/content_history_seed.json")
-MONTHLY_DIRECTION_PATH = os.getenv("MONTHLY_DIRECTION_PATH", "data/monthly_direction.json")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -67,16 +64,6 @@ SYSTEM_PROMPT = """당신은 리더십 교육 콘텐츠 큐레이터입니다.
   "meme": ["제목1", "제목2", "제목3", "제목4", "제목5"],
   "aggro": ["제목1", "제목2", "제목3", "제목4", "제목5"]
 }"""
-
-
-def _load_json(path, default):
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            logger.warning("JSON 읽기 실패, 기본값 사용: %s", path)
-    return default
 
 
 def _get_monthly_direction():

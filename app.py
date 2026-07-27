@@ -2,7 +2,6 @@
 리더십저니 테마 자동화 Slack Bolt 앱
 """
 import concurrent.futures
-import json
 import logging
 import os
 import signal
@@ -16,6 +15,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from scraper import run_scraping
+from storage import THEME_HISTORY_PATH, CONTENT_HISTORY_PATH, load_json, save_json
 from theme_engine import generate_theme, match_contents, get_direction
 
 load_dotenv()
@@ -36,7 +36,7 @@ def _ensure_single_instance():
             if old_pid > 1 and old_pid != current_pid:
                 os.kill(old_pid, signal.SIGTERM)
                 logger.info(f"기존 프로세스(PID {old_pid}) 종료")
-                import time; time.sleep(1)
+                time.sleep(1)
         except (ProcessLookupError, ValueError, OSError):
             pass
     with open(LOCK_FILE, "w") as f:
@@ -46,11 +46,6 @@ _ensure_single_instance()
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 TARGET_USER_ID = os.environ["TARGET_USER_ID"]
-# 가변 상태는 STORAGE_DIR(재배포에도 유지되는 볼륨 경로)에 저장한다. scraper.py·theme_engine.py와 동일 규칙.
-STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
-THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH") or os.path.join(STORAGE_DIR, "theme_history.json")
-CONTENT_HISTORY_PATH = os.getenv("CONTENT_HISTORY_PATH") or os.path.join(STORAGE_DIR, "content_history.json")
-os.makedirs(STORAGE_DIR, exist_ok=True)
 
 # 프로세스 메모리 세션
 session = {
@@ -128,41 +123,21 @@ def _get_dm_channel():
 
 
 def _save_confirmed_theme(keyword):
-    path = THEME_HISTORY_PATH
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    data = []
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            logger.warning("theme_history.json 읽기 실패, 초기화")
-            data = []
+    data = load_json(THEME_HISTORY_PATH, [])
     if keyword not in data:
         data.append(keyword)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        save_json(THEME_HISTORY_PATH, data)
 
 
 def _save_confirmed_contents(contents):
-    path = CONTENT_HISTORY_PATH
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    data = []
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            logger.warning("content_history.json 읽기 실패, 초기화")
-            data = []
+    data = load_json(CONTENT_HISTORY_PATH, [])
     existing = set(data)
     for c in contents:
         title = c.get("title", "").strip()
         if title and title not in existing:
             data.append(title)
             existing.add(title)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_json(CONTENT_HISTORY_PATH, data)
 
 
 def _run_and_send(channel=None, update_ts=None, keep_contents=False):

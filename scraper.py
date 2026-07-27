@@ -1,20 +1,19 @@
 """
 leadership.hunet.co.kr에서 신규 콘텐츠와 신규 테마를 수집해 누적 저장
 """
-import json
 import os
 import requests
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 
-load_dotenv()
+from storage import (
+    SCRAPED_CONTENTS_PATH,
+    THEME_HISTORY_PATH,
+    THEME_HISTORY_SEED_PATH,
+    CONTENT_HISTORY_SEED_PATH,
+    load_json as _load_json,
+    save_json as _save_json,
+)
 
-# 가변 상태는 STORAGE_DIR(재배포에도 유지되는 볼륨 경로)에 저장한다. app.py·theme_engine.py와 동일 규칙.
-STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
-SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH") or os.path.join(STORAGE_DIR, "scraped_contents.json")
-THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH") or os.path.join(STORAGE_DIR, "theme_history.json")
-THEME_HISTORY_SEED_PATH = os.getenv("THEME_HISTORY_SEED_PATH", "data/theme_history_seed.json")
-CONTENT_HISTORY_SEED_PATH = os.getenv("CONTENT_HISTORY_SEED_PATH", "data/content_history_seed.json")
 HUNET_SESSION_COOKIE = os.getenv("HUNET_SESSION_COOKIE", "")
 
 CONTENT_URL = "https://leadership.hunet.co.kr/journey/library?keyword_cd=CK92"
@@ -31,22 +30,6 @@ def _get_session():
     if HUNET_SESSION_COOKIE:
         s.headers.update({"Cookie": HUNET_SESSION_COOKIE})
     return s
-
-
-def _load_json(path, default):
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return default
-    return default
-
-
-def _save_json(path, data):
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def scrape_new_contents():
