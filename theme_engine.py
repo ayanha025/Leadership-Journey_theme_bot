@@ -79,10 +79,16 @@ SYSTEM_PROMPT = """당신은 리더십 교육 콘텐츠 큐레이터입니다.
 }"""
 
 
+@lru_cache(maxsize=1)
+def _load_monthly_directions():
+    """monthly_direction.json을 1회만 읽어 캐시. 파일은 재배포 시에만 바뀐다.
+    _get_monthly_direction·get_direction이 공유해 중복 로드를 없앤다."""
+    return _load_json(MONTHLY_DIRECTION_PATH, {})
+
+
 def _get_monthly_direction():
     month = str(datetime.now().month)
-    directions = _load_json(MONTHLY_DIRECTION_PATH, {})
-    return month, directions.get(month, "리더십 역량 개발")
+    return month, _load_monthly_directions().get(month, "리더십 역량 개발")
 
 
 def _get_forbidden_list(extra_keywords=None):
@@ -416,10 +422,11 @@ def match_contents(keyword, min_count=5):
             "cat": [""] * len(scraped),
             "tags": [""] * len(scraped),
         })
-        df = pd.concat([df, extras], ignore_index=True)
-        df = df[~df["title"].apply(lambda t: _is_excluded_title(str(t)))]
+        # 기존 df는 위에서 이미 제외/사용 필터를 통과했으므로, 신규분(extras)에만 같은 필터를 적용한다.
+        extras = extras[~extras["title"].apply(lambda t: _is_excluded_title(str(t)))]
         if used:
-            df = df[~df["title"].isin(used)]
+            extras = extras[~extras["title"].isin(used)]
+        df = pd.concat([df, extras], ignore_index=True)
 
     _, direction = _get_monthly_direction()
     groups = _parse_direction_groups(direction)
@@ -486,5 +493,4 @@ def match_contents(keyword, min_count=5):
 
 def get_direction(month):
     """월 번호(int)를 받아 기획 방향 문자열 반환"""
-    directions = _load_json(MONTHLY_DIRECTION_PATH, {})
-    return directions.get(str(month), "리더십 역량 개발")
+    return _load_monthly_directions().get(str(month), "리더십 역량 개발")
