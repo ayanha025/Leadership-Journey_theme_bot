@@ -25,11 +25,15 @@ PARALLEL_MODELS = [
     "meta-llama/llama-3.3-70b-instruct",  # 70B
     "google/gemma-3-27b-it",              # 27B
 ]
+# 가변 상태(수집·확정 이력)는 재배포에도 살아남아야 하므로 STORAGE_DIR 한 곳에 모은다.
+# 로컬은 기본값 storage/, Railway는 볼륨 마운트 경로(예: /data)를 STORAGE_DIR로 지정.
+# seed/csv 등 읽기 전용 리소스는 리포에 그대로 두고 data/ 에서 읽는다.
+STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
 CONTENT_CSV_PATH = os.getenv("CONTENT_CSV_PATH", "data/contents.csv")
-SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
-THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
+SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH") or os.path.join(STORAGE_DIR, "scraped_contents.json")
+THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH") or os.path.join(STORAGE_DIR, "theme_history.json")
 THEME_HISTORY_SEED_PATH = os.getenv("THEME_HISTORY_SEED_PATH", "data/theme_history_seed.json")
-CONTENT_HISTORY_PATH = os.getenv("CONTENT_HISTORY_PATH", "storage/content_history.json")
+CONTENT_HISTORY_PATH = os.getenv("CONTENT_HISTORY_PATH") or os.path.join(STORAGE_DIR, "content_history.json")
 CONTENT_HISTORY_SEED_PATH = os.getenv("CONTENT_HISTORY_SEED_PATH", "data/content_history_seed.json")
 MONTHLY_DIRECTION_PATH = os.getenv("MONTHLY_DIRECTION_PATH", "data/monthly_direction.json")
 
@@ -382,7 +386,8 @@ def _is_seasonal_mismatch(title: str, month: int) -> bool:
     return False
 
 
-EXCLUDED_TITLE_KEYWORDS = ["AI몬데이", "티키타카 한 판", "다시 쓰는 리력서", "리더십라디오", "2025 회고"]
+# "AI몬데이"와 "AI 몬데이"가 혼용되므로 공백에 무관한 "몬데이"로 잡는다
+EXCLUDED_TITLE_KEYWORDS = ["몬데이", "티키타카 한 판", "다시 쓰는 리력서", "리더십라디오", "2025 회고"]
 
 
 def _is_excluded_title(title: str) -> bool:

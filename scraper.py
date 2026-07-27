@@ -9,8 +9,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH", "storage/scraped_contents.json")
-THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
+# 가변 상태는 STORAGE_DIR(재배포에도 유지되는 볼륨 경로)에 저장한다. app.py·theme_engine.py와 동일 규칙.
+STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
+SCRAPED_CONTENTS_PATH = os.getenv("SCRAPED_CONTENTS_PATH") or os.path.join(STORAGE_DIR, "scraped_contents.json")
+THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH") or os.path.join(STORAGE_DIR, "theme_history.json")
 THEME_HISTORY_SEED_PATH = os.getenv("THEME_HISTORY_SEED_PATH", "data/theme_history_seed.json")
 CONTENT_HISTORY_SEED_PATH = os.getenv("CONTENT_HISTORY_SEED_PATH", "data/content_history_seed.json")
 HUNET_SESSION_COOKIE = os.getenv("HUNET_SESSION_COOKIE", "")

@@ -46,8 +46,11 @@ _ensure_single_instance()
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 TARGET_USER_ID = os.environ["TARGET_USER_ID"]
-THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH", "storage/theme_history.json")
-CONTENT_HISTORY_PATH = os.getenv("CONTENT_HISTORY_PATH", "storage/content_history.json")
+# 가변 상태는 STORAGE_DIR(재배포에도 유지되는 볼륨 경로)에 저장한다. scraper.py·theme_engine.py와 동일 규칙.
+STORAGE_DIR = os.getenv("STORAGE_DIR", "storage")
+THEME_HISTORY_PATH = os.getenv("THEME_HISTORY_PATH") or os.path.join(STORAGE_DIR, "theme_history.json")
+CONTENT_HISTORY_PATH = os.getenv("CONTENT_HISTORY_PATH") or os.path.join(STORAGE_DIR, "content_history.json")
+os.makedirs(STORAGE_DIR, exist_ok=True)
 
 # 프로세스 메모리 세션
 session = {
