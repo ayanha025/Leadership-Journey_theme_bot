@@ -1,0 +1,3 @@
+# 개발/테스트 전용 의존성 (운영 requirements.txt와 분리 — Railway는 이 파일을 설치하지 않음)
+-r requirements.txt
+pytest>=8.0

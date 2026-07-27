@@ -8,6 +8,7 @@ import os
 import re
 from datetime import datetime
 from collections import Counter
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,18 @@ PARALLEL_MODELS = [
     "meta-llama/llama-3.3-70b-instruct",  # 70B
     "google/gemma-3-27b-it",              # 27B
 ]
+
+
+@lru_cache(maxsize=1)
+def _read_contents_csv():
+    """contents.csv를 1회만 파싱해 캐시. 파일은 재배포 시에만 바뀌므로
+    (스크래퍼는 별도 JSON에만 쓴다) 프로세스 수명 동안 재파싱이 불필요하다."""
+    return pd.read_csv(CONTENT_CSV_PATH)
+
+
+def _load_contents_df():
+    """캐시된 원본의 사본을 반환해 호출부의 필터링이 캐시를 오염시키지 않게 한다."""
+    return _read_contents_csv().copy()
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -85,7 +98,7 @@ def _get_content_keywords():
     """contents.csv에서 tags/cat 상위 빈도 키워드 50개 추출"""
     if not os.path.exists(CONTENT_CSV_PATH):
         return ""
-    df = pd.read_csv(CONTENT_CSV_PATH)
+    df = _load_contents_df()
     words = []
     for col in ["tags", "cat"]:
         if col in df.columns:
@@ -388,7 +401,7 @@ def match_contents(keyword, min_count=5):
     라운드로빈으로 고르게 선별해 아티클/영상 혼합 min_count개 반환
     """
     current_month = datetime.now().month
-    df = pd.read_csv(CONTENT_CSV_PATH)
+    df = _load_contents_df()
     df = df[~df["title"].apply(lambda t: _is_seasonal_mismatch(str(t), current_month))]
     df = df[~df["title"].apply(lambda t: _is_excluded_title(str(t)))]
     used = _get_used_content_titles()
