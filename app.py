@@ -27,6 +27,8 @@ LOCK_FILE = "/tmp/leadership_journey_bot.pid"
 KST = ZoneInfo("Asia/Seoul")
 SCRAPE_HOUR_KST = int(os.getenv("SCRAPE_HOUR_KST", "6"))
 
+TYPE_ICONS = {"아티클": ":page_facing_up:", "영상": ":clapper:"}
+
 def _ensure_single_instance():
     current_pid = os.getpid()
     if os.path.exists(LOCK_FILE):
@@ -81,9 +83,10 @@ def _build_message_text(month, direction, keyword, titles, contents):
     for i, t in enumerate(titles.get("aggro", [])[:5]):
         lines.append(f"{i + 16}. {t}")
 
-    lines += ["", "━━━━━━━━━━━━━━━━━━━━━━━", ":books: *추천 콘텐츠 (아티클 · 영상)*"]
+    lines += ["", "━━━━━━━━━━━━━━━━━━━━━━━", ":books: *추천 콘텐츠*"]
     for c in contents:
-        icon = ":page_facing_up:" if c.get("type") == "아티클" else ":clapper:"
+        # 매일 수집분(type="신규")은 아티클/영상 구분이 없어 별도 아이콘으로 표시
+        icon = TYPE_ICONS.get(c.get("type"), ":sparkles:")
         lines.append(f"{icon} {c.get('title', '')}")
 
     return "\n".join(lines)

@@ -404,7 +404,10 @@ def _is_excluded_title(title: str) -> bool:
 def match_contents(keyword, min_count=5):
     """
     월별 기획 방향의 서브 그룹별로 콘텐츠를 스코어링하고
-    라운드로빈으로 고르게 선별해 아티클/영상 혼합 min_count개 반환
+    라운드로빈으로 고르게 선별해 min_count개 반환.
+
+    제외 키워드에 걸린 항목만 빼고, 아티클·영상·매일 수집분을 구분하지 않은
+    전체 목록에서 제목만으로 관련성을 유추해 겨룬다. 동점이면 최신순.
     """
     current_month = datetime.now().month
     df = _load_contents_df()
@@ -426,38 +429,37 @@ def match_contents(keyword, min_count=5):
         extras = extras[~extras["title"].apply(lambda t: _is_excluded_title(str(t)))]
         if used:
             extras = extras[~extras["title"].isin(used)]
-        df = pd.concat([df, extras], ignore_index=True)
+        # 스크래퍼는 목록 페이지를 contents.csv와 대조하지 않아 기존 콘텐츠도 다시 담는다.
+        # 카탈로그에 있는 제목은 아티클/영상 타입이 정확한 쪽을 남긴다.
+        extras = extras[~extras["title"].isin(set(df["title"].astype(str)))]
+        # 수집분을 앞에 둔다. contents.csv가 최신순이고 정렬이 안정(mergesort)이라
+        # 동점은 목록 순서로 갈리는데, 수집분은 그 어떤 csv 항목보다 최신이다.
+        # 뒤에 붙이면 동점 경쟁에서 항상 밀려 사실상 노출되지 않는다.
+        extras = extras.iloc[::-1]  # 파일은 수집순 append라 뒤집어야 최신이 앞
+        df = pd.concat([extras, df], ignore_index=True)
 
     _, direction = _get_monthly_direction()
     groups = _parse_direction_groups(direction)
 
     def score_tokens(row, tokens):
-        text = " ".join([
-            str(row.get("tags", "") or ""),
-            str(row.get("cat", "") or ""),
-            str(row.get("title", "") or ""),
-        ])
-        return sum(1 for t in tokens if t in text)
+        # 제목만으로 관련성을 유추한다. tags·cat까지 합쳐 채점하면 매일 수집분처럼
+        # 메타데이터가 없는 항목이 구조적으로 불리해져(최고 1점 대 2점) 영영 못 뜬다.
+        return sum(1 for t in tokens if t in str(row.get("title", "") or ""))
 
-    # 그룹별로 아티클/영상 혼합 후보 목록 생성
+    # 그룹별로 타입 무관 후보 목록 생성
     group_candidates = []
     for group in groups:
         tokens = set(group.split())
         scored = df.copy()
         scored["_score"] = scored.apply(lambda r: score_tokens(r, tokens), axis=1)
-        scored = scored[scored["_score"] > 0].sort_values("_score", ascending=False)
-        arts = scored[scored["type"] == "아티클"].reset_index(drop=True)
-        vids = scored[scored["type"] == "영상"].reset_index(drop=True)
-        mixed = []
-        ai, vi = 0, 0
-        while ai < len(arts) or vi < len(vids):
-            if ai < len(arts):
-                mixed.append(arts.iloc[ai].to_dict())
-                ai += 1
-            if vi < len(vids):
-                mixed.append(vids.iloc[vi].to_dict())
-                vi += 1
-        group_candidates.append(mixed)
+        # 타입 구분 없이 점수순으로만 세운다. 예전에는 아티클/영상 두 트랙으로 나눠
+        # 번갈아 담았는데, 매일 수집분(type="신규")이 두 트랙 어디에도 속하지 않아
+        # 후보에서 통째로 탈락했다. mergesort는 동점일 때 원본 순서를 보존해
+        # 호출 간 결과가 흔들리지 않게 한다.
+        scored = scored[scored["_score"] > 0].sort_values(
+            "_score", ascending=False, kind="mergesort"
+        )
+        group_candidates.append([row.to_dict() for _, row in scored.iterrows()])
 
     # 라운드로빈으로 그룹 간 고르게 선별
     result = []
